@@ -25,12 +25,20 @@
 (function (global) {
   const core = global.BackpackCoreReduce;
 
-  // Expected-shape assertion: a real Genesis student page has at least one
-  // "Period <letter>" marker — confirmed present on every course card in
-  // the real capture this adapter was built against. A miss means Genesis
-  // changed its markup, or this page has no schedule/course data on it.
+  // Expected-shape assertion. Genesis's student-summary page has (at
+  // least) two different schedule renderings depending on which view the
+  // session lands on or last had selected - confirmed real, both from live
+  // captures of the same account:
+  //   - "List View" (full-year schedule): explicit "Period <letter>" text
+  //     on every course card, e.g. "Period A".
+  //   - "Daily View" (today's schedule, the apparent default on landing):
+  //     no literal "Period" text at all - period letters are bare headers
+  //     (A, B, C, L1, L2...) followed by a time range and "Room: <room>".
+  // "Room" is the one marker confirmed present in both, so it's the
+  // primary check; the List View's "Period <letter>" is kept as a second
+  // path in case a future view differs again.
   function checkGenesisShape(text) {
-    return /\bPeriod\s+[A-Za-z0-9]\b/.test(text);
+    return /\bRoom\b/i.test(text) || /\bPeriod\s+[A-Za-z0-9]\b/.test(text);
   }
 
   // A login redirect on Genesis is a plain sign-in form (no /genesis/

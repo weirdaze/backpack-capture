@@ -59,7 +59,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const captures = await getCaptures();
       const payload = JSON.stringify({ exported_at: new Date().toISOString(), captures }, null, 2);
       const url = `data:application/json;base64,${btoa(unescape(encodeURIComponent(payload)))}`;
-      const filename = `backpack-captures-${new Date().toISOString().slice(0, 10)}.json`;
+      // Include time, not just date - re-exporting later the same day
+      // previously overwrote the earlier file (with saveAs, only if the
+      // user keeps the suggested name), losing whatever the earlier
+      // export had already captured for diagnosis.
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const filename = `backpack-captures-${stamp}.json`;
       const downloadId = await chrome.downloads.download({ url, filename, saveAs: true });
       sendResponse({ ok: true, downloadId });
     })();

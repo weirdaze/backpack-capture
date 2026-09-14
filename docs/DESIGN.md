@@ -183,3 +183,64 @@ Schools' instance, `parents.<district>/genesis/parents`) showed otherwise:
 This is exactly the kind of assumption the design doc's own "verify one
 real capture first" rule exists to catch — building the frames-based
 adapter first would have produced nothing.
+
+**Update, same day**: a second real capture (from an actual live session,
+not the saved-page fixture) revealed the student-summary page actually has
+*two* schedule renderings, switchable in place without a page reload:
+
+- **List View** (described above) — full-year schedule, explicit
+  `Period <letter>` text, no clock times.
+- **Daily View** — today's schedule only, period letters as bare headers
+  followed by a time range and `Room: <room> <term>` on one line (e.g.
+  `A` / `7:30 AM - 8:27 AM` / `GEOMETRY A` / `Borrelli/Squazzo` /
+  `Room: C203 FY`), no literal word "Period" anywhere. This is the view a
+  session lands on by default.
+
+The expected-shape check (`checkGenesisShape`) was originally written
+against List View only and wrongly flagged real Daily View captures as
+`adapter_may_be_broken` — fixed by checking for `Room` (present in both)
+rather than the List-View-only `Period <letter>` text.
+
+**Also confirmed real from that same live capture**: the schedule content
+loads via a separate AJAX call *after* the page shell settles, and can
+still show Genesis's own `"One moment..."` placeholder when the
+MutationObserver's quiet-period fires — `core-content.js`'s
+`retryOnBadShape` option (re-settle and re-check up to N times) exists
+specifically for this. And the page also embeds a Google Translate widget
+(`#google_translate_element`) whose language dropdown made up ~70% of a
+real capture's reduced text despite zero schedule content — excluded via
+`core-reduce.js`'s `skipSelectors` option.
+
+Since List View and Daily View carry complementary data (List View: which
+class each period is assigned, for the whole year; Daily View: today's
+actual clock times) and toggling between them doesn't navigate or scroll
+the page, a plain click-based recapture trigger was added
+(`core-content.js`, mirroring the existing scroll-based one) so switching
+views captures both instead of only whichever one a page load or scroll
+happened to catch.
+
+## Goal: resolve "what class is my child in right now" (not built yet)
+
+The data needed for this already splits across pieces captured today, plus
+one piece that isn't captured at all yet:
+
+- **Daily View** gives today's bell schedule: period letter → actual clock
+  time — but only for periods that fall on today's specific rotation day.
+- **List View** gives the full-year period → class assignment — but no
+  clock times, and its `Days 123456` field is a day-of-week/rotation code,
+  not a resolved "today" answer.
+- **Not yet captured at all**: whatever tells you *which* rotation day
+  today is, if the schedule isn't a flat Mon-Fri cycle (the sibling
+  `schoolz` repo's own `hs_rotation` scan exists because this district's
+  high schools run an A-H day rotation independent of the calendar weekday
+  — a real Genesis capture's `"Today's Cycle: 1"` line is a candidate
+  source for this, unverified beyond that one observation).
+
+The goal: combine today's rotation day → today's bell times → each
+period's class/teacher/room from the full-year schedule into one resolved
+answer — "right now/next: Period C, 9:32-10:29 AM, Science of Cooking,
+Room B232." This is extraction-layer work (parsing and correlating raw
+captures), not a capture-layer change — it belongs wherever a consolidated
+"what's my child in right now" view eventually gets built (see
+Architecture above), using the raw Genesis captures this extension already
+produces as input. Not started.

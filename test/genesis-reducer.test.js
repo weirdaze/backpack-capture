@@ -65,6 +65,15 @@ test("expected-shape assertion passes on a real schedule page", () => {
   assert.equal(reduced.loginWall, false);
 });
 
+test("expected-shape assertion also passes on the Daily View rendering (no literal 'Period' text)", () => {
+  const dom = loadFixture("genesis-daily-view.html", SUMMARY_URL);
+  const reduced = dom.window.BackpackGenesisReducer.reduce(dom.window.document.body, { url: dom.window.location.href });
+  assert.equal(reduced.shapeOk, true);
+  assert.equal(reduced.loginWall, false);
+  assert.match(reduced.text, /ALGEBRA I/);
+  assert.match(reduced.text, /Room: C101 FY/);
+});
+
 test("detects a login wall when the /genesis/parents path was never reached", () => {
   const dom = loadFixture("genesis-login.html", "https://parents.example-district.org/genesis/");
   const reduced = dom.window.BackpackGenesisReducer.reduce(dom.window.document.body, { url: dom.window.location.href });

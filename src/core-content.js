@@ -205,18 +205,33 @@
       runCapture("auto");
     }, 1000);
 
-    let scrollIdleTimer = null;
+    function scheduleRecapture(idleTimerRef, delayMs, trigger) {
+      if (idleTimerRef.id) clearTimeout(idleTimerRef.id);
+      idleTimerRef.id = setTimeout(() => {
+        if (Date.now() - lastAutoCaptureAt < AUTO_CAPTURE_COOLDOWN_MS) return;
+        lastAutoCaptureAt = Date.now();
+        runCapture(trigger);
+      }, delayMs);
+    }
+
+    const scrollIdleTimer = {};
     window.addEventListener(
       "scroll",
-      () => {
-        if (scrollIdleTimer) clearTimeout(scrollIdleTimer);
-        scrollIdleTimer = setTimeout(() => {
-          if (Date.now() - lastAutoCaptureAt < AUTO_CAPTURE_COOLDOWN_MS) return;
-          lastAutoCaptureAt = Date.now();
-          runCapture("scroll-settle");
-        }, 1500);
-      },
+      () => scheduleRecapture(scrollIdleTimer, 1500, "scroll-settle"),
       { passive: true }
+    );
+
+    // A click can switch between views the page never navigates or
+    // scrolls for (confirmed real: Genesis's List View / Daily View
+    // toggle swaps the schedule content in place on the same URL) - a
+    // person clicking something and pausing to look is the same "looking
+    // at this now" signal scroll-pause already covers, so recapture there
+    // too instead of requiring a manual "Capture this tab" for every view.
+    const clickIdleTimer = {};
+    document.addEventListener(
+      "click",
+      () => scheduleRecapture(clickIdleTimer, 1500, "click-settle"),
+      { passive: true, capture: true }
     );
 
     return { runCapture };
