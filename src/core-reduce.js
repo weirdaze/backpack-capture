@@ -29,7 +29,7 @@
   // (no kept attrs, no text, no kept children) so empty wrapper divs
   // collapse away instead of bloating the output. Never anchors on class
   // names — Google's and Genesis's are both generated/unstable.
-  function reduceNode(node) {
+  function reduceNode(node, toSkip) {
     if (node.nodeType === Node.COMMENT_NODE) return null;
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent.replace(/\s+/g, " ").trim();
@@ -38,6 +38,7 @@
     if (node.nodeType !== Node.ELEMENT_NODE) return null;
     if (STRIP_TAGS.has(node.tagName)) return null;
     if (node.tagName === "IMG") return null; // no useful text, may carry data: URIs
+    if (toSkip && toSkip.has(node)) return null;
 
     const attrs = {};
     for (const attr of node.attributes || []) {
@@ -48,7 +49,7 @@
 
     const children = [];
     for (const child of node.childNodes) {
-      const reduced = reduceNode(child);
+      const reduced = reduceNode(child, toSkip);
       if (reduced) children.push(reduced);
     }
 
@@ -97,8 +98,20 @@
     return deduped.join("\n");
   }
 
-  function reduce(rootElement) {
-    const tree = reduceNode(rootElement) || { tag: "div" };
+  // skipSelectors lets a caller exclude specific noise subtrees (e.g. a
+  // Google Translate widget's language dropdown) by CSS selector, without
+  // this generic module knowing anything about which adapter needs that —
+  // each adapter's own reducer decides what to pass.
+  function reduce(rootElement, options) {
+    const skipSelectors = (options && options.skipSelectors) || [];
+    let toSkip = null;
+    if (skipSelectors.length) {
+      toSkip = new Set();
+      for (const selector of skipSelectors) {
+        rootElement.querySelectorAll(selector).forEach((el) => toSkip.add(el));
+      }
+    }
+    const tree = reduceNode(rootElement, toSkip) || { tag: "div" };
     const text = flattenToText(tree);
     return { tree, text, charCount: text.length };
   }

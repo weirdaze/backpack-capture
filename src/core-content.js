@@ -109,6 +109,15 @@
   //   reduce: (rootElement, {url}) => {text, charCount, shapeOk, loginWall},
   //   idFromUrl: (url) => string | number | null,   // account_index equivalent
   //   scrollSweep: boolean,                          // do the scroll-to-bottom sweep on initial load
+  //   retryOnBadShape: { maxAttempts, delayMs } | undefined,
+  //     // Re-settle and re-reduce up to maxAttempts times (waiting delayMs
+  //     // between tries) when the first pass comes back !shapeOk and isn't
+  //     // a login wall, before accepting it as "adapter may be broken".
+  //     // Needed for sources whose real content loads async after the
+  //     // page's own initial paint settles — confirmed real on Genesis,
+  //     // whose schedule cards arrive via a separate AJAX call and can
+  //     // still show its "One moment..." placeholder when the DOM's
+  //     // mutation-quiet period fires.
   // }
   function createCaptureRunner(config) {
     let captureInFlight = false;
@@ -145,7 +154,16 @@
         }
         await waitForSettle();
 
-        const reduced = config.reduce(document.body, { url: location.href });
+        let reduced = config.reduce(document.body, { url: location.href });
+        if (!reduced.loginWall && !reduced.shapeOk && config.retryOnBadShape) {
+          const { maxAttempts, delayMs } = config.retryOnBadShape;
+          for (let attempt = 0; attempt < maxAttempts && !reduced.shapeOk; attempt++) {
+            await new Promise((r) => setTimeout(r, delayMs));
+            await waitForSettle();
+            reduced = config.reduce(document.body, { url: location.href });
+          }
+        }
+
         const envelope = buildEnvelope(reduced);
 
         if (envelope.status === "login_wall") {

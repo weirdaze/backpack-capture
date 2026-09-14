@@ -54,9 +54,17 @@
     }
   }
 
+  // #google_translate_element is Genesis's Google Translate widget - a
+  // language dropdown with 100+ entries that carried no schedule signal at
+  // all but made up ~70% of a real capture's reduced text (confirmed: 4771
+  // of 6765 chars in a live capture). Excluded by id, which is stable
+  // (Google's own widget mount point), not by anything Genesis-specific
+  // that could churn.
+  const SKIP_SELECTORS = ["#google_translate_element"];
+
   function reduce(rootElement, options) {
     const opts = options || {};
-    const base = core.reduce(rootElement);
+    const base = core.reduce(rootElement, { skipSelectors: SKIP_SELECTORS });
     return {
       ...base,
       shapeOk: checkGenesisShape(base.text),

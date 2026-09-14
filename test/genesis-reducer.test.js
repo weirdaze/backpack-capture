@@ -45,6 +45,13 @@ test("keeps course card fields in document order (no aria-label needed)", () => 
   ]);
 });
 
+test("excludes the Google Translate widget subtree entirely", () => {
+  const dom = loadFixture("genesis-summary.html", SUMMARY_URL);
+  const reduced = dom.window.BackpackGenesisReducer.reduce(dom.window.document.body, { url: dom.window.location.href });
+  assert.equal(reduced.text.includes("Select Language"), false);
+  assert.equal(reduced.text.includes("Language Translate Widget"), false);
+});
+
 test("drops data: URI images", () => {
   const dom = loadFixture("genesis-summary.html", SUMMARY_URL);
   const reduced = dom.window.BackpackGenesisReducer.reduce(dom.window.document.body, { url: dom.window.location.href });
