@@ -1,0 +1,54 @@
+<!--
+  Synthetic fixture, not a real capture. Shaped after the real Classroom
+  stream page examined while building the reducer (see
+  docs/BUCKET3_CLASSROOM_CAPTURE.md in the schoolz repo) but with invented
+  class/assignment names — nothing here is a real student's data.
+-->
+<!doctype html>
+<html>
+  <head>
+    <title>Stream - 4th Period English</title>
+    <style>.CLASS_ABC123 { color: red; }</style>
+    <script>window.__DATA__ = { secret: "should be stripped" };</script>
+  </head>
+  <body>
+    <header class="fake-noise">
+      <svg><path d="M0 0"></path></svg>
+    </header>
+    <main>
+      <div class="CLASS_XYZ789 CLASS_QWERTY" data-focus-id="/u/0/c/AAA/a/BBB/details">
+        <a
+          href="https://classroom.google.com/u/0/c/AAA/a/BBB/details"
+          aria-label="Assignment: Chapter 4 Reading Response, due Tomorrow"
+          role="link"
+          data-stream-item-id="1111111111"
+        >
+          <img src="data:image/png;base64,AAAA" alt="" />
+          <span class="CLASS_LABEL">Chapter 4 Reading Response</span>
+        </a>
+      </div>
+      <div class="CLASS_XYZ789" data-focus-id="/u/0/c/AAA/a/CCC/details">
+        <a
+          href="https://classroom.google.com/u/0/c/AAA/a/CCC/details"
+          aria-label="Assignment: Vocabulary Quiz Unit 3, due Friday"
+          role="link"
+          data-stream-item-id="2222222222"
+        >
+          <span>Vocabulary Quiz Unit 3</span>
+        </a>
+      </div>
+      <div class="CLASS_MATERIAL" data-focus-id="/u/0/c/AAA/m/DDD/details">
+        <a
+          href="https://classroom.google.com/u/0/c/AAA/m/DDD/details"
+          aria-label="Material: Syllabus and classroom expectations"
+          role="link"
+        >
+          <span>Syllabus and classroom expectations</span>
+        </a>
+      </div>
+      <!-- an empty structural wrapper that should collapse away entirely -->
+      <div class="CLASS_WRAPPER"><div class="CLASS_INNER"></div></div>
+      <noscript>Enable JavaScript to use Classroom.</noscript>
+    </main>
+  </body>
+</html>

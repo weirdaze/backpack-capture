@@ -1,0 +1,166 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f5faf9;
+  --fg: #16211f;
+  --muted: #5b6b68;
+  --border: #d8e6e3;
+  --accent: #167f7a;
+  --danger: #b4432f;
+  --card: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101917;
+    --fg: #eafff9;
+    --muted: #9db5b0;
+    --border: #24352f;
+    --accent: #4fd1c5;
+    --danger: #ff8a70;
+    --card: #17221f;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  width: 360px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+header {
+  padding: 14px 16px 10px;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 12px;
+  flex-wrap: wrap;
+}
+
+button {
+  font: inherit;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--fg);
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #04211f;
+  font-weight: 600;
+}
+
+button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: transparent;
+  margin-left: auto;
+}
+
+.status {
+  margin: 0 16px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.list-wrap {
+  max-height: 320px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+#captureList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.capture-row {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.capture-row .title {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.capture-row .meta {
+  color: var(--muted);
+  font-size: 11px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.badge.ok {
+  background: #163f2c;
+  color: #7be8a6;
+}
+
+.badge.low_confidence {
+  background: #4a3b12;
+  color: #ffd074;
+}
+
+.badge.adapter_may_be_broken {
+  background: #4a1c12;
+  color: #ff9c7a;
+}
+
+.badge.login_wall {
+  background: #4a1212;
+  color: #ff8a8a;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.row-actions button {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.empty {
+  padding: 20px 16px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 12px;
+}

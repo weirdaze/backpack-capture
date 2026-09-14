@@ -1,0 +1,13 @@
+{
+  "name": "backpack-capture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome extension that reads the Google Classroom page you're already logged into and exports a reduced, due-work-focused JSON capture. Read-only, local-only.",
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "devDependencies": {
+    "jsdom": "^30.0.1"
+  },
+  "license": "MIT"
+}
