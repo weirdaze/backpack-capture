@@ -1,9 +1,10 @@
 # Backpack Capture
 
-A Chrome extension that reads the Google Classroom page you're already
-logged into and reduces it down to a small, structured JSON file of
-assignments/materials/announcements — so you can pull "what's due" out of
-Classroom without doing "Save As" and hand-parsing an HTML file every time.
+A Chrome extension that reads a Google Classroom or Genesis Parent Portal
+page you're already logged into and reduces it down to a small, structured
+JSON file — so you can pull "what's due" (Classroom) or a class schedule
+(Genesis) out without doing "Save As" and hand-parsing an HTML file every
+time.
 
 **It is read-only and local-only.** It never logs in, never submits a form,
 never reads cookies or your password, and never sends anything over the
@@ -26,28 +27,34 @@ ported from the original design notes.
 
 ## What it does
 
-1. You open `classroom.google.com` in a normal, logged-in Chrome tab.
-2. The extension waits for the page to finish rendering (Classroom
-   paints progressively and lazy-loads content as you scroll), then reads
-   the DOM.
+1. You open `classroom.google.com` or a Genesis Parent Portal page
+   (`.../genesis/parents?...`) in a normal, logged-in Chrome tab.
+2. The extension waits for the page to finish rendering (Classroom paints
+   progressively and lazy-loads content as you scroll), then reads the DOM.
 3. It strips out scripts, styles, SVGs, inline images, and every CSS class
-   name — none of that carries real signal, and Google's class names are
-   auto-generated and change without notice. It **keeps** `aria-label`,
-   `role`, `title`, `href`, `datetime`, and `data-*` attributes, because in
-   Classroom's real markup the assignment title and due date live in
+   name — none of that carries real signal, and both sites' class names are
+   auto-generated and change without notice. On Classroom it **keeps**
+   `aria-label`, `role`, `title`, `href`, `datetime`, and `data-*`
+   attributes, because the assignment title and due date live in
    `aria-label`, not in the visible text:
    ```
    aria-label="Assignment: Quiz: The Americas and Europe Before 1492, due Tomorrow"
    ```
+   Genesis turned out to carry no semantic attributes like that at all —
+   its schedule data (class name, teacher, room, period, days) is plain
+   nested `<div>` text, so the Genesis adapter keeps that visible text in
+   document order instead (see `docs/DESIGN.md` for how this was confirmed
+   against a real capture).
 4. The reduced text (not the raw HTML) is stored locally in the extension's
    own storage, tagged with a timestamp, timezone, source URL, and which
-   Google account (`/u/0/`, `/u/1/`, ...) it came from.
+   Google account (`/u/0/`, `/u/1/`, ...) or Genesis student id it came from.
 5. You open the toolbar popup and click **Export JSON** whenever you want a
    file — nothing leaves the browser before that.
 
 On a real Classroom stream page this reduces a ~1.8MB saved page down to
-roughly 80KB of actual signal — see `test/reducer.test.js` for the
-regression coverage.
+roughly 80KB of actual signal; on a real Genesis student-summary page it's
+~168KB down to ~8KB — see `test/reducer.test.js` and
+`test/genesis-reducer.test.js` for the regression coverage.
 
 ## What it does *not* do
 
@@ -61,11 +68,16 @@ regression coverage.
 - It does not read cookies, `localStorage`, or anything else that could
   authenticate as you. Check `manifest.json` — the only permissions are
   `storage`, `downloads`, `scripting`, `activeTab`, and host access to
-  `classroom.google.com` only.
+  `classroom.google.com` and `*/genesis/parents*` only.
 - It does not talk to any server. There is no telemetry, no analytics, no
   crash reporting, no API calls anywhere in this extension.
-- It currently only has an adapter for Google Classroom. Genesis and other
-  portals are a documented future step, not built yet.
+- It currently has adapters for Google Classroom and the Genesis Parent
+  Portal. Other portals (ClassDojo, Remind, ...) are a documented future
+  step, not built yet — see `docs/DESIGN.md`.
+- The Genesis host permission (`*://*/genesis/parents*`) matches any
+  district's Genesis instance by path, since every Genesis deployment uses
+  that same `/genesis/parents` URL structure on its own subdomain — it is
+  not scoped to one specific district's domain.
 
 ## Installing (there is no Chrome Web Store listing)
 
@@ -112,7 +124,7 @@ than an error — you'd trust an empty list. So every capture gets tagged:
 |---|---|
 | `ok` | Looks like a normal capture with real content. |
 | `low confidence` | Very little text came out — the page may not have loaded fully. |
-| `layout changed?` | No node matched the expected `Assignment:`/`Material:`/`Announcement` `aria-label` shape. Google may have changed the DOM; the capture is still saved for inspection, but treat it as suspect. |
+| `layout changed?` | The page didn't match the expected shape (Classroom: an `Assignment:`/`Material:`/`Announcement` `aria-label`; Genesis: a `Period <letter>` marker). The site may have changed its markup; the capture is still saved for inspection, but treat it as suspect. |
 | `login wall` | Never stored at all — detected as a sign-in redirect, on purpose, so it can't overwrite a good capture with nothing. |
 
 ## Scope of this repo

@@ -22,11 +22,16 @@
     "service_worker": "src/background.js"
   },
   "permissions": ["storage", "downloads", "scripting", "activeTab"],
-  "host_permissions": ["https://classroom.google.com/*"],
+  "host_permissions": ["https://classroom.google.com/*", "*://*/genesis/parents*"],
   "content_scripts": [
     {
       "matches": ["https://classroom.google.com/*"],
-      "js": ["src/reducer.js", "src/content.js"],
+      "js": ["src/core-reduce.js", "src/core-content.js", "src/reducer.js", "src/content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*/genesis/parents*"],
+      "js": ["src/core-reduce.js", "src/core-content.js", "src/genesis-reducer.js", "src/genesis-content.js"],
       "run_at": "document_idle"
     }
   ]

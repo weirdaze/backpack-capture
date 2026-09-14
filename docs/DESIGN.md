@@ -140,6 +140,46 @@ Every capture carries, alongside the reduced text:
 - **Due-date/assignment extraction, dedup, and a consolidated UI.** This
   repo produces reduced JSON; turning that into a "what's due" list is a
   separate follow-on project.
-- **Genesis and other portals.** The same technique should generalize, but
-  each portal is its own adapter with its own DOM shape to verify against a
-  real capture first.
+- **Other portals** (ClassDojo, Remind, ...). The same technique should
+  generalize, but each is its own adapter with its own DOM shape to verify
+  against a real capture first — same as Genesis was.
+
+## Genesis: confirmed shape (differs from the original assumption)
+
+The original notes this design is adapted from assumed Genesis would be a
+legacy frames-and-tables layout needing `all_frames: true`. A real capture
+of a Genesis Parent Portal "student summary" page (Cherry Hill Public
+Schools' instance, `parents.<district>/genesis/parents`) showed otherwise:
+
+- **No frames at all** — it's a single modern document. `all_frames` isn't
+  needed.
+- **No semantic attributes on the payload.** Unlike Classroom's
+  `aria-label`, Genesis's schedule cards carry no `aria-label`/`role`/
+  anything — the class name, term, teacher, room, period, and days are
+  plain nested `<div>` text with only inline styles for card coloring:
+  ```html
+  <div>GEOMETRY A</div><div><b>FY</b></div>
+  <div><i>Borrelli/Squazzo</i></div>
+  <div>Room <b>C203</b></div>
+  <div>Period <b>A</b></div>
+  <div>Days <b>123456</b></div>
+  ```
+  So the Genesis reducer keeps plain text runs in document order instead of
+  hunting for attributes — the generic strip-and-flatten primitive
+  (`src/core-reduce.js`) already does this; only the expected-shape check
+  (a `Period <letter>` marker) and login-wall/student-id logic are
+  Genesis-specific (`src/genesis-reducer.js`).
+- **Student identity is a `studentid` query parameter**
+  (`?tab1=studentdata&tab2=studentsummary&studentid=1234567`), not a
+  `/u/<n>/` path segment like Classroom.
+- **The host varies per district** — every Genesis deployment uses the same
+  `/genesis/parents` path on its own subdomain, so the extension's host
+  permission matches on path (`*://*/genesis/parents*`) rather than one
+  hardcoded domain.
+- Real reduction result: a ~168KB saved page reduced to ~8KB of actual
+  schedule text, all fields (class/term/teacher/room/period/days) intact
+  and in the right grouping.
+
+This is exactly the kind of assumption the design doc's own "verify one
+real capture first" rule exists to catch — building the frames-based
+adapter first would have produced nothing.

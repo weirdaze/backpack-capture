@@ -98,9 +98,9 @@ document.getElementById("captureNow").addEventListener("click", async () => {
     setTimeout(render, 500);
   } else {
     setStatus(
-      result && result.error === "not_classroom_tab"
-        ? "Open a classroom.google.com tab first."
-        : "Capture failed — reload the Classroom tab and try again."
+      result && result.error === "unsupported_tab"
+        ? "Open a Classroom or Genesis tab first."
+        : "Capture failed — reload the tab and try again."
     );
   }
 });

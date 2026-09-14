@@ -1,0 +1,45 @@
+<!--
+  Synthetic fixture, not a real capture. Shaped after a real Genesis Parent
+  Portal "student summary" page examined while building this adapter (see
+  docs/DESIGN.md) but with invented names/rooms/teachers — nothing here is
+  a real student's data. Confirmed real structure: Genesis's schedule cards
+  carry no aria-label/semantic attributes at all, only plain nested <div>
+  text (class name, term, teacher, room, period, days) with inline styles
+  for card coloring.
+-->
+<!doctype html>
+<html>
+  <head>
+    <title>Parents at Example School District</title>
+    <style>.notecard { color: red; }</style>
+    <script>window.__DATA__ = { secret: "should be stripped" };</script>
+  </head>
+  <body>
+    <div class="flexColContainer">
+      <div style="background: linear-gradient(to bottom, hsl(36deg 100% 80%) 35%, hsl(36deg 100% 86%) 100%);">
+        <div style="font-weight: bold;" class="twoCol">
+          <div>ALGEBRA I</div>
+          <div><b>FY</b></div>
+        </div>
+        <div><i>Smith/Jones</i></div>
+        <div>Room <b>C101</b></div>
+        <div>Period <b>A</b></div>
+        <div>Days <b>123456</b></div>
+      </div>
+      <div style="background: linear-gradient(to bottom, hsl(110, 76%, 62%) 35%, hsl(110deg 76% 64%) 100%);">
+        <div style="font-weight: bold;" class="twoCol">
+          <div>ENGLISH 9</div>
+          <div><b>FY</b></div>
+        </div>
+        <div><i>Williams, Pat</i></div>
+        <div>Room <b>B210</b></div>
+        <div>Period <b>B</b></div>
+        <div>Days <b>123456</b></div>
+      </div>
+      <!-- empty structural wrapper that should collapse away entirely -->
+      <div><div></div></div>
+    </div>
+    <img src="data:image/png;base64,AAAA" alt="" />
+    <noscript>Enable JavaScript to use this site.</noscript>
+  </body>
+</html>

@@ -69,8 +69,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.type === "TRIGGER_MANUAL_CAPTURE") {
     (async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab || !tab.url || !tab.url.startsWith("https://classroom.google.com/")) {
-        sendResponse({ ok: false, error: "not_classroom_tab" });
+      const isSupportedTab =
+        tab && tab.url && (tab.url.startsWith("https://classroom.google.com/") || /\/genesis\/parents/i.test(tab.url));
+      if (!isSupportedTab) {
+        sendResponse({ ok: false, error: "unsupported_tab" });
         return;
       }
       try {

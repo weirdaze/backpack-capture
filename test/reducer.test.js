@@ -10,7 +10,9 @@ function loadFixture(name, url) {
   global.window = dom.window;
   global.document = dom.window.document;
   global.Node = dom.window.Node;
+  delete require.cache[require.resolve("../src/core-reduce.js")];
   delete require.cache[require.resolve("../src/reducer.js")];
+  require("../src/core-reduce.js");
   require("../src/reducer.js");
   return dom;
 }
