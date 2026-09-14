@@ -23,6 +23,15 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Check manifest.json version matches the tag
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          manifest_version=$(node -p "require('./manifest.json').version")
+          if [ "$tag_version" != "$manifest_version" ]; then
+            echo "::error::Tag is $GITHUB_REF_NAME but manifest.json version is $manifest_version - bump manifest.json before tagging."
+            exit 1
+          fi
+
       - name: Zip the extension directory
         run: |
           mkdir -p dist
