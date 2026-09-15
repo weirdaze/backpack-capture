@@ -68,6 +68,7 @@
     scroller.scrollTo(0, 0);
   }
 
+  // options: { onUndo, actions: [{label, onClick}], sticky }
   function showToast(message, options) {
     const opts = options || {};
     const existing = document.getElementById("__backpack_capture_toast");
@@ -87,21 +88,25 @@
     text.textContent = message;
     toast.appendChild(text);
 
-    if (opts.onUndo) {
-      const undoBtn = document.createElement("button");
-      undoBtn.textContent = "Undo";
-      undoBtn.style.cssText = "background:transparent;border:1px solid #4fd1c5;color:#4fd1c5;border-radius:6px;padding:3px 8px;cursor:pointer;font:inherit;flex:none;";
-      undoBtn.addEventListener("click", () => {
-        opts.onUndo();
+    const actions = [...(opts.actions || [])];
+    if (opts.onUndo) actions.push({ label: "Undo", onClick: opts.onUndo });
+    for (const action of actions) {
+      const btn = document.createElement("button");
+      btn.textContent = action.label;
+      btn.style.cssText = "background:transparent;border:1px solid #4fd1c5;color:#4fd1c5;border-radius:6px;padding:3px 8px;cursor:pointer;font:inherit;flex:none;";
+      btn.addEventListener("click", () => {
+        action.onClick();
         toast.remove();
       });
-      toast.appendChild(undoBtn);
+      toast.appendChild(btn);
     }
 
     document.body.appendChild(toast);
-    setTimeout(() => {
-      if (toast.parentNode) toast.remove();
-    }, 8000);
+    if (!opts.sticky) {
+      setTimeout(() => {
+        if (toast.parentNode) toast.remove();
+      }, 8000);
+    }
   }
 
   // config: {
@@ -213,6 +218,28 @@
         runCapture("manual").then(() => sendResponse({ ok: true }));
         return true;
       }
+
+      // Replay drives this tab through a saved route. One step can't be done
+      // by address alone (Genesis swaps List/Daily View in place), so replay
+      // asks the person to do it rather than clicking the page itself.
+      if (message && message.type === "SHOW_REPLAY_PROMPT") {
+        showToast(message.label, {
+          sticky: true,
+          actions: [
+            { label: "Done", onClick: () => chrome.runtime.sendMessage({ type: "REPLAY_STEP_DONE", skipped: false }) },
+            { label: "Skip", onClick: () => chrome.runtime.sendMessage({ type: "REPLAY_STEP_DONE", skipped: true }) },
+          ],
+        });
+        sendResponse({ ok: true });
+        return true;
+      }
+
+      if (message && message.type === "SHOW_REPLAY_TOAST") {
+        showToast(message.message, { sticky: Boolean(message.sticky) });
+        sendResponse({ ok: true });
+        return true;
+      }
+
       return undefined;
     });
 

@@ -11,6 +11,14 @@
       <p class="subtitle">Saves the school pages you open, right here in your browser. Nothing is sent anywhere.</p>
     </header>
 
+    <section id="replay" class="replay" hidden>
+      <div>
+        <strong id="replayTitle">Replaying</strong>
+        <div id="replayDetail" class="muted"></div>
+      </div>
+      <button id="replayCancel">Stop</button>
+    </section>
+
     <section id="session" class="session">
       <div class="session-state">
         <span class="dot" aria-hidden="true"></span>
@@ -20,6 +28,13 @@
         </div>
       </div>
       <button id="sessionToggle" class="primary">Start capture</button>
+      <button id="saveTemplate" hidden>Save last session as a template</button>
+    </section>
+
+    <section class="templates" id="templatesSection" hidden>
+      <h2>Templates</h2>
+      <ul id="templateList"></ul>
+      <p class="muted">Replay opens a new tab and walks the same pages again, so you can make a fresh export any day.</p>
     </section>
 
     <section class="sites">
@@ -49,6 +64,7 @@
     </section>
 
     <script src="supported-sites.js"></script>
+    <script src="template-builder.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

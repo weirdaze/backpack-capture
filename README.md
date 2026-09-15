@@ -130,6 +130,32 @@ extension:
   badge (`ok` / `low confidence` / `layout changed?` / `login wall`) and
   delete any of them individually, or clear everything.
 
+### Templates — do the same round again another day
+
+A capture session is usually the same little tour every time: each class's
+Classwork page, then the Genesis schedule and grades. You can save that
+tour once and replay it whenever you want a fresh export.
+
+1. Press **Start capture**, click through the pages you care about, then
+   press **End capture**.
+2. Press **Save last session as a template** and give it a name.
+3. Any day after that, press **Replay** next to the template. It opens a new
+   tab, walks the same pages in the same order, captures each one, and tells
+   you how many it got. Then press **Export capture**.
+
+A template stores **addresses and their order**, not clicks — every page
+worth capturing has its own URL, so replay doesn't depend on Google's
+markup, which changes without notice. The one exception is Genesis's List
+View / Daily View toggle, which swaps content without changing the URL: if
+your recorded session toggled it, replay pauses on that page and asks you to
+click the view yourself (**Done** / **Skip** in the toast). The extension
+never clicks the site's own controls for you.
+
+Templates have their own **✕** and are **not** removed by **Clear all** —
+that button only deletes captured pages. Class and student ids stay stable
+within a school year, so a template should last the year; re-record it after
+a rollover, or if a replayed step reports nothing captured.
+
 ## Status badges, and why they exist
 
 A capture that "succeeds" but silently contains nothing useful is worse

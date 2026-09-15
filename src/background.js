@@ -2,20 +2,29 @@
  * Backpack Capture — background service worker.
  *
  * Owns the local capture store (chrome.storage.local), the capture session
- * (Start/End capture), and the export. Never touches the network — this
- * extension has no server and no API calls anywhere in it; captures leave
- * the browser only when the parent explicitly exports them.
+ * (Start/End capture), saved templates, and replay. Never touches the
+ * network — this extension has no server and no API calls anywhere in it;
+ * captures leave the browser only when the parent explicitly exports them.
  */
-importScripts("supported-sites.js");
+importScripts("supported-sites.js", "template-builder.js");
 
 const STORAGE_KEY = "backpack_captures";
 const SESSION_KEY = "backpack_session"; // also read by core-content.js
+const TEMPLATES_KEY = "backpack_templates"; // deliberately NOT cleared by CLEAR_CAPTURES
+const REPLAY_KEY = "backpack_replay";
 const MAX_CAPTURES = 500; // simple cap so storage.local never grows unbounded
-const IDLE_SESSION = { active: false, startedAt: null, count: 0 };
+const MAX_SESSION_PAGES = 300;
+const IDLE_SESSION = { active: false, startedAt: null, count: 0, pages: [] };
+const PAGE_STEP_TIMEOUT_MS = 45000;
+const PROMPT_STEP_TIMEOUT_MS = 180000;
+
+async function readKey(key, fallback) {
+  const data = await chrome.storage.local.get(key);
+  return data[key] === undefined ? fallback : data[key];
+}
 
 async function getCaptures() {
-  const data = await chrome.storage.local.get(STORAGE_KEY);
-  return data[STORAGE_KEY] || [];
+  return readKey(STORAGE_KEY, []);
 }
 
 async function setCaptures(captures) {
@@ -23,8 +32,7 @@ async function setCaptures(captures) {
 }
 
 async function getSession() {
-  const data = await chrome.storage.local.get(SESSION_KEY);
-  return { ...IDLE_SESSION, ...(data[SESSION_KEY] || {}) };
+  return { ...IDLE_SESSION, ...(await readKey(SESSION_KEY, {})) };
 }
 
 async function showSessionBadge(session) {
@@ -42,16 +50,126 @@ async function saveSession(session) {
   await showSessionBadge(session);
 }
 
+async function getTemplates() {
+  return readKey(TEMPLATES_KEY, []);
+}
+
+async function setTemplates(templates) {
+  await chrome.storage.local.set({ [TEMPLATES_KEY]: templates });
+}
+
+async function setReplay(replay) {
+  await chrome.storage.local.set({ [REPLAY_KEY]: replay });
+}
+
 // A session never survives a browser restart, so capture is never left
 // running for days by someone who forgot to press End.
 chrome.runtime.onStartup.addListener(async () => {
   const session = await getSession();
   await saveSession({ ...session, active: false });
+  await setReplay(null);
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
   await showSessionBadge(await getSession());
 });
+
+// ---- replay -----------------------------------------------------------------
+
+let runner = null; // { cancelled, tabId, onCapture, onStepDone }
+
+function waitFor(assign, timeoutMs) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      assign(null);
+      resolve({ timedOut: true });
+    }, timeoutMs);
+    assign((value) => {
+      clearTimeout(timer);
+      assign(null);
+      resolve(value || {});
+    });
+  });
+}
+
+async function runReplay(template) {
+  const steps = template.steps || [];
+  if (!steps.length) return;
+  // MV3 service workers can be shut down while idle; a replay spends most of
+  // its time waiting on page loads, so keep it awake until it's finished.
+  const keepAlive = setInterval(() => chrome.runtime.getPlatformInfo(), 20000);
+  let captured = 0;
+  let skipped = 0;
+
+  try {
+    await saveSession({ active: true, startedAt: new Date().toISOString(), count: 0, pages: [], replaying: template.name });
+    const tab = await chrome.tabs.create({ url: steps[0].url, active: true });
+    runner = { cancelled: false, tabId: tab.id, onCapture: null, onStepDone: null };
+
+    for (let i = 0; i < steps.length; i++) {
+      if (runner.cancelled) break;
+      const step = steps[i];
+      await setReplay({
+        active: true,
+        name: template.name,
+        templateId: template.id,
+        index: i,
+        total: steps.length,
+        kind: step.kind,
+        url: step.url,
+      });
+
+      if (step.kind === "page") {
+        if (i > 0) await chrome.tabs.update(runner.tabId, { url: step.url });
+        const result = await waitFor((fn) => {
+          runner.onCapture = fn;
+        }, PAGE_STEP_TIMEOUT_MS);
+        if (result.timedOut) skipped++;
+        else captured++;
+      } else {
+        try {
+          await chrome.tabs.sendMessage(runner.tabId, { type: "SHOW_REPLAY_PROMPT", label: step.label });
+        } catch (e) {
+          // the tab has no content script (wrong page) - nothing to prompt on
+        }
+        const result = await waitFor((fn) => {
+          runner.onStepDone = fn;
+        }, PROMPT_STEP_TIMEOUT_MS);
+        if (result.timedOut || result.skipped) skipped++;
+        else captured++;
+      }
+    }
+
+    const cancelled = runner.cancelled;
+    const summary = cancelled
+      ? "Backpack: replay stopped."
+      : `Backpack: replay finished — ${captured} page${captured === 1 ? "" : "s"} captured${
+          skipped ? `, ${skipped} skipped` : ""
+        }. Open the extension to export.`;
+    try {
+      await chrome.tabs.sendMessage(runner.tabId, { type: "SHOW_REPLAY_TOAST", message: summary });
+    } catch (e) {
+      // tab closed mid-replay - the popup still shows the result
+    }
+
+    const templates = await getTemplates();
+    await setTemplates(
+      templates.map((t) =>
+        t.id === template.id
+          ? { ...t, lastReplayedAt: new Date().toISOString(), lastResult: { captured, skipped, cancelled } }
+          : t
+      )
+    );
+    await setReplay({ active: false, name: template.name, captured, skipped, cancelled });
+  } finally {
+    clearInterval(keepAlive);
+    runner = null;
+    const session = await getSession();
+    await saveSession({ ...session, active: false, replaying: null });
+  }
+}
+
+// ---- messages ---------------------------------------------------------------
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.type === "STORE_CAPTURE") {
@@ -60,8 +178,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       captures.unshift(message.envelope);
       if (captures.length > MAX_CAPTURES) captures.length = MAX_CAPTURES;
       await setCaptures(captures);
+
       const session = await getSession();
-      if (session.active) await saveSession({ ...session, count: session.count + 1 });
+      if (session.active) {
+        const pages = [...(session.pages || []), { url: message.envelope.source_url, at: message.envelope.captured_at }];
+        if (pages.length > MAX_SESSION_PAGES) pages.splice(0, pages.length - MAX_SESSION_PAGES);
+        await saveSession({ ...session, count: session.count + 1, pages });
+      }
+      if (runner && runner.onCapture && sender.tab && sender.tab.id === runner.tabId) runner.onCapture({});
       sendResponse({ ok: true });
     })();
     return true;
@@ -69,7 +193,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message && message.type === "START_SESSION") {
     (async () => {
-      const session = { active: true, startedAt: new Date().toISOString(), count: 0 };
+      const session = { active: true, startedAt: new Date().toISOString(), count: 0, pages: [] };
       await saveSession(session);
       sendResponse({ ok: true, session });
     })();
@@ -92,6 +216,80 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message && message.type === "SAVE_TEMPLATE") {
+    (async () => {
+      const session = await getSession();
+      const steps = self.BackpackTemplates.buildSteps(session.pages);
+      if (!steps.length) {
+        sendResponse({ ok: false, error: "no_pages" });
+        return;
+      }
+      const template = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: (message.name || "").trim() || self.BackpackTemplates.defaultName(new Date()),
+        createdAt: new Date().toISOString(),
+        steps,
+        lastReplayedAt: null,
+        lastResult: null,
+      };
+      await setTemplates([template, ...(await getTemplates())]);
+      sendResponse({ ok: true, template });
+    })();
+    return true;
+  }
+
+  if (message && message.type === "GET_TEMPLATES") {
+    (async () => {
+      sendResponse({ ok: true, templates: await getTemplates(), replay: await readKey(REPLAY_KEY, null) });
+    })();
+    return true;
+  }
+
+  if (message && message.type === "DELETE_TEMPLATE") {
+    (async () => {
+      await setTemplates((await getTemplates()).filter((t) => t.id !== message.id));
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (message && message.type === "START_REPLAY") {
+    (async () => {
+      if (runner) {
+        sendResponse({ ok: false, error: "already_replaying" });
+        return;
+      }
+      const template = (await getTemplates()).find((t) => t.id === message.id);
+      if (!template) {
+        sendResponse({ ok: false, error: "not_found" });
+        return;
+      }
+      runReplay(template); // deliberately not awaited - it outlives this message
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (message && message.type === "CANCEL_REPLAY") {
+    (async () => {
+      if (runner) {
+        runner.cancelled = true;
+        if (runner.onCapture) runner.onCapture({});
+        else if (runner.onStepDone) runner.onStepDone({ skipped: true });
+      }
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (message && message.type === "REPLAY_STEP_DONE") {
+    (async () => {
+      if (runner && runner.onStepDone) runner.onStepDone({ skipped: Boolean(message.skipped) });
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
   if (message && message.type === "DELETE_CAPTURE") {
     (async () => {
       const captures = await getCaptures();
@@ -103,7 +301,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message && message.type === "CLEAR_CAPTURES") {
     (async () => {
-      await setCaptures([]);
+      await setCaptures([]); // saved templates are kept - each has its own X
       sendResponse({ ok: true });
     })();
     return true;

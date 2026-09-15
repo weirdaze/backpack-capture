@@ -38,7 +38,7 @@ function setStatus(text) {
   el.hidden = !text;
 }
 
-let currentSession = { active: false, startedAt: null, count: 0 };
+let currentSession = { active: false, startedAt: null, count: 0, pages: [] };
 
 async function renderSession() {
   const { session } = await chrome.runtime.sendMessage({ type: "GET_SESSION" });
@@ -47,10 +47,11 @@ async function renderSession() {
   const title = document.getElementById("sessionTitle");
   const detail = document.getElementById("sessionDetail");
   const toggle = document.getElementById("sessionToggle");
+  const save = document.getElementById("saveTemplate");
 
   card.classList.toggle("active", session.active);
   if (session.active) {
-    title.textContent = "Capturing";
+    title.textContent = session.replaying ? `Replaying ${session.replaying}` : "Capturing";
     detail.textContent = `Since ${fmtClock(session.startedAt)} · ${pages(session.count)} saved. Just browse, there's nothing to click on each page.`;
     toggle.textContent = "End capture";
     toggle.className = "stop";
@@ -61,6 +62,80 @@ async function renderSession() {
       : "Press Start, then open your child's Classroom and Genesis pages.";
     toggle.textContent = "Start capture";
     toggle.className = "primary";
+  }
+  save.hidden = session.active || !(session.pages || []).length;
+}
+
+async function renderTemplates() {
+  const { templates, replay } = await chrome.runtime.sendMessage({ type: "GET_TEMPLATES" });
+  const section = document.getElementById("templatesSection");
+  const list = document.getElementById("templateList");
+  section.hidden = !(templates || []).length;
+  list.innerHTML = "";
+
+  for (const template of templates || []) {
+    const li = document.createElement("li");
+
+    const info = document.createElement("div");
+    info.className = "template-info";
+    const name = document.createElement("strong");
+    name.textContent = template.name;
+    const meta = document.createElement("div");
+    meta.className = "muted";
+    const steps = window.BackpackTemplates.pageCount(template.steps);
+    meta.textContent = template.lastReplayedAt
+      ? `${pages(steps)} · last replayed ${fmtTime(template.lastReplayedAt)}`
+      : `${pages(steps)} · never replayed`;
+    info.append(name, meta);
+
+    const replayBtn = document.createElement("button");
+    replayBtn.textContent = "Replay";
+    replayBtn.disabled = Boolean(replay && replay.active);
+    replayBtn.addEventListener("click", async () => {
+      const result = await chrome.runtime.sendMessage({ type: "START_REPLAY", id: template.id });
+      setStatus(result && result.ok ? "" : "Couldn't start replay.");
+      renderReplay();
+      renderTemplates();
+    });
+
+    const del = document.createElement("button");
+    del.className = "icon";
+    del.title = `Delete ${template.name}`;
+    del.textContent = "✕";
+    del.addEventListener("click", async () => {
+      if (!confirm(`Delete the template "${template.name}"? Saved pages aren't affected.`)) return;
+      await chrome.runtime.sendMessage({ type: "DELETE_TEMPLATE", id: template.id });
+      renderTemplates();
+    });
+
+    li.append(info, replayBtn, del);
+    list.appendChild(li);
+  }
+}
+
+async function renderReplay() {
+  const { replay } = await chrome.runtime.sendMessage({ type: "GET_TEMPLATES" });
+  const card = document.getElementById("replay");
+  if (!replay) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  const title = document.getElementById("replayTitle");
+  const detail = document.getElementById("replayDetail");
+  const cancel = document.getElementById("replayCancel");
+
+  if (replay.active) {
+    title.textContent = `Replaying ${replay.name}`;
+    detail.textContent =
+      replay.kind === "prompt"
+        ? `Step ${replay.index + 1} of ${replay.total} — waiting for you on the page.`
+        : `Step ${replay.index + 1} of ${replay.total}…`;
+    cancel.hidden = false;
+  } else {
+    title.textContent = replay.cancelled ? "Replay stopped" : "Replay finished";
+    detail.textContent = `${pages(replay.captured)} captured${replay.skipped ? `, ${replay.skipped} skipped` : ""}.`;
+    cancel.hidden = true;
   }
 }
 
@@ -162,6 +237,20 @@ document.getElementById("sessionToggle").addEventListener("click", async () => {
   renderSession();
 });
 
+document.getElementById("saveTemplate").addEventListener("click", async () => {
+  const suggested = window.BackpackTemplates.defaultName(new Date());
+  const name = prompt("Name this template", suggested);
+  if (name === null) return;
+  const result = await chrome.runtime.sendMessage({ type: "SAVE_TEMPLATE", name });
+  setStatus(result && result.ok ? "Template saved." : "That session had no pages to save.");
+  renderTemplates();
+});
+
+document.getElementById("replayCancel").addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ type: "CANCEL_REPLAY" });
+  renderReplay();
+});
+
 document.getElementById("captureNow").addEventListener("click", async () => {
   setStatus("Capturing…");
   const result = await chrome.runtime.sendMessage({ type: "TRIGGER_MANUAL_CAPTURE" });
@@ -183,19 +272,26 @@ document.getElementById("exportCapture").addEventListener("click", async () => {
 });
 
 document.getElementById("clearAll").addEventListener("click", async () => {
-  if (!confirm("Delete all saved pages? This can't be undone.")) return;
+  if (!confirm("Delete all saved pages? Templates are kept. This can't be undone.")) return;
   await chrome.runtime.sendMessage({ type: "CLEAR_CAPTURES" });
   renderCaptures();
 });
 
-// Captures land while the popup is open (the session keeps running).
+// Captures and replay steps land while the popup is open.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.backpack_session) renderSession();
   if (changes.backpack_captures) renderCaptures();
+  if (changes.backpack_templates) renderTemplates();
+  if (changes.backpack_replay) {
+    renderReplay();
+    renderTemplates();
+  }
 });
 
 renderSites();
 renderTabNote();
 renderSession();
+renderTemplates();
+renderReplay();
 renderCaptures();

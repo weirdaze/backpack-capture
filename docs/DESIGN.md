@@ -239,6 +239,37 @@ class in the URL (home, to-do) or no class view roots keep everything and
 never block. Because Classroom never reloads, the runner also polls
 `location.href` and recaptures after a URL change.
 
+## Templates and replay (added in 0.4.0)
+
+Capturing is a repeated chore: the same handful of Classwork pages plus the
+same Genesis tabs, every week. A **template** is one finished session's page
+list, saved so it can be walked again later (`src/template-builder.js`,
+`buildSteps`), and **replay** drives one new tab through those addresses
+while a session is running, so each page is captured by the normal path.
+
+Why addresses and not recorded clicks: every page that carries real content
+is URL-addressable (confirmed across a full real export - each class's
+Classwork, each Genesis tab), while click replay would have to anchor on
+Google's generated markup, which this codebase deliberately never depends
+on. Replaying URLs also degrades honestly - a step that captures nothing is
+reported as skipped, rather than a click silently landing on the wrong
+element.
+
+The one thing a URL can't express is Genesis's List View / Daily View
+toggle, which swaps content in place on the same URL. A session that
+captured one Genesis page more than once is exactly what toggling looks
+like, so `buildSteps` follows that page with a `kind: "prompt"` step:
+replay shows a sticky toast asking the person to switch the view and press
+**Done** (or **Skip**). This keeps the extension's standing promise that it
+never clicks or automates anything on the site's side - and it's visible, so
+nobody is left wondering why a replay is sitting still.
+
+Replay state (`backpack_replay`) and templates (`backpack_templates`) are
+their own storage keys: **Clear all** empties captures only, and each
+template has its own delete. MV3 service workers are shut down when idle and
+a replay spends its time waiting on page loads, so `runReplay` holds a
+keep-alive interval until it finishes.
+
 ## Goal: resolve "what class is my child in right now" (not built yet)
 
 The data needed for this already splits across pieces captured today, plus

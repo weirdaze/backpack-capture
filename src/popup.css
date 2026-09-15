@@ -33,6 +33,12 @@
   box-sizing: border-box;
 }
 
+/* A class like .replay { display: flex } beats the UA sheet's
+   [hidden] { display: none }, so hidden sections would render empty. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   width: 360px;
@@ -115,6 +121,68 @@ h2 {
   width: 100%;
   padding: 9px 10px;
   font-size: 14px;
+}
+
+.replay {
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--card);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.templates {
+  margin: 0 16px 12px;
+}
+
+.templates ul {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.templates li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--card);
+}
+
+.template-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.template-info strong {
+  display: block;
+  word-break: break-word;
+}
+
+button.icon {
+  padding: 3px 8px;
+  border-color: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+}
+
+button.icon:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+#saveTemplate {
+  width: 100%;
 }
 
 .sites {
