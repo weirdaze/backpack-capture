@@ -6,8 +6,11 @@
 (function () {
   window.BackpackCoreContent.createCaptureRunner({
     adapter: "classroom",
-    adapterVersion: 1,
+    adapterVersion: 2,
     scrollSweep: true, // Classroom's stream lazy-loads older items on scroll
+    // Waits out class-to-class navigation (reduced.viewReady). No
+    // retryOnBadShape: a class with no posted work legitimately has no items.
+    retry: { maxAttempts: 8, delayMs: 750 },
     idFromUrl: (url) => window.BackpackReducer.accountIndexFromUrl(url),
     reduce: (rootElement, opts) => window.BackpackReducer.reduce(rootElement, opts),
   });

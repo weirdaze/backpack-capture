@@ -109,16 +109,22 @@
   //   reduce: (rootElement, {url}) => {text, charCount, shapeOk, loginWall},
   //   idFromUrl: (url) => string | number | null,   // account_index equivalent
   //   scrollSweep: boolean,                          // do the scroll-to-bottom sweep on initial load
-  //   retryOnBadShape: { maxAttempts, delayMs } | undefined,
+  //   retry: { maxAttempts, delayMs } | undefined,
   //     // Re-settle and re-reduce up to maxAttempts times (waiting delayMs
-  //     // between tries) when the first pass comes back !shapeOk and isn't
-  //     // a login wall, before accepting it as "adapter may be broken".
-  //     // Needed for sources whose real content loads async after the
-  //     // page's own initial paint settles — confirmed real on Genesis,
-  //     // whose schedule cards arrive via a separate AJAX call and can
-  //     // still show its "One moment..." placeholder when the DOM's
-  //     // mutation-quiet period fires.
+  //     // between tries) while the page isn't ready yet: reduced.viewReady
+  //     // is false (Classroom mid-navigation, only another class's view
+  //     // rendered so far), or - with retryOnBadShape - !shapeOk.
+  //   retryOnBadShape: boolean,
+  //     // Also treat !shapeOk as "not loaded yet" before accepting it as
+  //     // "adapter may be broken". Needed for sources whose real content
+  //     // loads async after the page's own initial paint settles —
+  //     // confirmed real on Genesis, whose schedule cards arrive via a
+  //     // separate AJAX call and can still show its "One moment..."
+  //     // placeholder when the DOM's mutation-quiet period fires.
   // }
+  //
+  // A mutation-quiet period alone can't tell "loaded" from "paused while
+  // loading": Classroom's loading spinner goes quiet long enough to pass it.
   function createCaptureRunner(config) {
     let captureInFlight = false;
     let lastAutoCaptureAt = 0;
@@ -149,19 +155,28 @@
       if (captureInFlight) return;
       captureInFlight = true;
       try {
-        if (trigger === "auto" && config.scrollSweep) {
+        if ((trigger === "auto" || trigger === "navigate") && config.scrollSweep) {
           await scrollThroughPage();
         }
         await waitForSettle();
 
+        const notReady = (r) =>
+          !r.loginWall && (r.viewReady === false || (config.retryOnBadShape && !r.shapeOk));
         let reduced = config.reduce(document.body, { url: location.href });
-        if (!reduced.loginWall && !reduced.shapeOk && config.retryOnBadShape) {
-          const { maxAttempts, delayMs } = config.retryOnBadShape;
-          for (let attempt = 0; attempt < maxAttempts && !reduced.shapeOk; attempt++) {
+        if (config.retry) {
+          const { maxAttempts, delayMs } = config.retry;
+          for (let attempt = 0; attempt < maxAttempts && notReady(reduced); attempt++) {
             await new Promise((r) => setTimeout(r, delayMs));
             await waitForSettle();
             reduced = config.reduce(document.body, { url: location.href });
           }
+        }
+
+        if (reduced.viewReady === false) {
+          // Storing this would label one page's content with another page's
+          // address - worse than capturing nothing.
+          showToast("Backpack: this page was still loading, nothing captured. Scroll or tap Capture to try again.");
+          return;
         }
 
         const envelope = buildEnvelope(reduced);
@@ -233,6 +248,17 @@
       () => scheduleRecapture(clickIdleTimer, 1500, "click-settle"),
       { passive: true, capture: true }
     );
+
+    // Single-page apps (Classroom) change the URL without reloading, so the
+    // initial "auto" capture never runs for the next page. Content scripts
+    // can't see the page's own history.pushState calls, so poll the URL.
+    let lastHref = location.href;
+    const navIdleTimer = {};
+    setInterval(() => {
+      if (location.href === lastHref) return;
+      lastHref = location.href;
+      scheduleRecapture(navIdleTimer, 1500, "navigate");
+    }, 500);
 
     return { runCapture };
   }

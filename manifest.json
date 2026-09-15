@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Backpack Capture",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Reads the Google Classroom or Genesis Parent Portal page you're already logged into and reduces it to a JSON export. Read-only, local-only, no login automation.",
   "icons": {
     "16": "icons/icon16.png",

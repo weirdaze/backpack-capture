@@ -219,6 +219,26 @@ the page, a plain click-based recapture trigger was added
 views captures both instead of only whichever one a page load or scroll
 happened to catch.
 
+## Classroom: capturing mid-navigation (fixed in 0.2.4)
+
+Classroom switches classes without a page load and keeps the previously
+opened class's view in the DOM. Confirmed real on every Classwork capture
+in a full export: the capture under Geometry's URL held Geometry's own
+(fully loaded) views *and* English's view - the class opened just before -
+so a consumer attributing rows by URL filed each class's work under the
+class opened after it.
+
+Each rendered class page is a view whose root names its class:
+`data-p='%.@."<class id>"]'`, the same base64-of-a-number id the URL uses.
+`reducer.js` leaves out views naming a different class than the URL
+(`otherClassViews` → `core-reduce.js`'s `skipElements`), and reports
+`viewReady` - a view for the URL's class exists. `core-content.js`'s `retry`
+loop waits on it, and a page that never becomes ready is **not stored**: a
+capture labeled with the wrong class is worse than none. Pages with no
+class in the URL (home, to-do) or no class view roots keep everything and
+never block. Because Classroom never reloads, the runner also polls
+`location.href` and recaptures after a URL change.
+
 ## Goal: resolve "what class is my child in right now" (not built yet)
 
 The data needed for this already splits across pieces captured today, plus

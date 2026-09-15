@@ -104,9 +104,10 @@
   // each adapter's own reducer decides what to pass.
   function reduce(rootElement, options) {
     const skipSelectors = (options && options.skipSelectors) || [];
+    const skipElements = (options && options.skipElements) || [];
     let toSkip = null;
-    if (skipSelectors.length) {
-      toSkip = new Set();
+    if (skipSelectors.length || skipElements.length) {
+      toSkip = new Set(skipElements);
       for (const selector of skipSelectors) {
         rootElement.querySelectorAll(selector).forEach((el) => toSkip.add(el));
       }

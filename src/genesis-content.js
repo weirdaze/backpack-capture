@@ -13,7 +13,8 @@
     adapter: "genesis",
     adapterVersion: 1,
     scrollSweep: false,
-    retryOnBadShape: { maxAttempts: 5, delayMs: 1500 },
+    retry: { maxAttempts: 5, delayMs: 1500 },
+    retryOnBadShape: true,
     idFromUrl: (url) => window.BackpackGenesisReducer.studentIdFromUrl(url),
     reduce: (rootElement, opts) => window.BackpackGenesisReducer.reduce(rootElement, opts),
   });

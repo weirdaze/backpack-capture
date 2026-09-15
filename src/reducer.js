@@ -44,13 +44,66 @@
     return m ? Number(m[1]) : null;
   }
 
+  // Classroom class ids are base64 of a numeric id ("ODcyNDkxNDc4MTk4" is
+  // 872491478198), both in URLs (/c/<id>, /w/<id>/t/all) and in each class
+  // view's root attribute: data-p='%.@."<id>"]...'.
+  function isClassId(token) {
+    if (!token || token.length < 8) return false;
+    try {
+      const b64 = token.replace(/-/g, "+").replace(/_/g, "/");
+      return /^\d+$/.test(global.atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4)));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function classIdFromUrl(url) {
+    const m = /\/(?:c|w)\/([A-Za-z0-9_-]+)(?:[/?#]|$)/.exec(url || "");
+    return m && isClassId(m[1]) ? m[1] : null;
+  }
+
+  function classIdsIn(el) {
+    const ids = [];
+    for (const m of (el.getAttribute("data-p") || "").matchAll(/"([A-Za-z0-9_-]+)"/g)) {
+      if (isClassId(m[1])) ids.push(m[1]);
+    }
+    return ids;
+  }
+
+  // Classroom never reloads between classes and keeps the previously opened
+  // class's view in the DOM after switching. Confirmed real on every
+  // Classwork capture in a full export: Geometry's page held Geometry's own
+  // loaded views *and* English's (the class opened just before), so each
+  // class's work was exported twice - once under the next class's URL.
+  // Views naming a different class than the URL are left out, and the page
+  // counts as ready once a view for the URL's class exists. Pages with no
+  // class in the URL (home, to-do) or no class view roots keep everything
+  // and never block.
+  function otherClassViews(rootElement, url) {
+    const urlId = classIdFromUrl(url);
+    if (!urlId) return { others: [], ready: true };
+    const others = [];
+    let sawClassView = false;
+    let sawUrlView = false;
+    rootElement.querySelectorAll("[data-p]").forEach((el) => {
+      const ids = classIdsIn(el);
+      if (!ids.length) return;
+      sawClassView = true;
+      if (ids.includes(urlId)) sawUrlView = true;
+      else others.push(el);
+    });
+    return { others, ready: !sawClassView || sawUrlView };
+  }
+
   function reduce(rootElement, options) {
     const opts = options || {};
-    const base = core.reduce(rootElement);
+    const views = otherClassViews(rootElement, opts.url || "");
+    const base = core.reduce(rootElement, { skipElements: views.others });
     return {
       ...base,
       shapeOk: checkClassroomShape(base.tree),
       loginWall: looksLikeLoginWall(opts.url || "", base.tree),
+      viewReady: views.ready,
     };
   }
 
@@ -60,6 +113,8 @@
     checkClassroomShape,
     looksLikeLoginWall,
     accountIndexFromUrl,
+    classIdFromUrl,
+    otherClassViews,
     reduce,
   };
 })(typeof window !== "undefined" ? window : globalThis);
