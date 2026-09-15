@@ -6,10 +6,15 @@ JSON file — so you can pull "what's due" (Classroom) or a class schedule
 (Genesis) out without doing "Save As" and hand-parsing an HTML file every
 time.
 
+**It only works on Google Classroom and Genesis Parent Portal pages.** On
+every other website Chrome never loads it, so it can't see or record the
+rest of your browsing. **Nothing is captured until you press Start
+capture.**
+
 **It is read-only and local-only.** It never logs in, never submits a form,
 never reads cookies or your password, and never sends anything over the
 network on its own. The only network-shaped thing it does is let *you*
-download a JSON file at the end.
+save an export file at the end.
 
 ## Why it works this way
 
@@ -27,7 +32,8 @@ ported from the original design notes.
 
 ## What it does
 
-1. You open `classroom.google.com` or a Genesis Parent Portal page
+1. You press **Start capture** in the toolbar popup, then open
+   `classroom.google.com` or a Genesis Parent Portal page
    (`.../genesis/parents?...`) in a normal, logged-in Chrome tab.
 2. The extension waits for the page to finish rendering (Classroom paints
    progressively and lazy-loads content as you scroll), then reads the DOM.
@@ -48,8 +54,8 @@ ported from the original design notes.
 4. The reduced text (not the raw HTML) is stored locally in the extension's
    own storage, tagged with a timestamp, timezone, source URL, and which
    Google account (`/u/0/`, `/u/1/`, ...) or Genesis student id it came from.
-5. You open the toolbar popup and click **Export JSON** whenever you want a
-   file — nothing leaves the browser before that.
+5. You open the toolbar popup and click **Export capture** whenever you want
+   a file — nothing leaves the browser before that.
 
 On a real Classroom stream page this reduces a ~1.8MB saved page down to
 roughly 80KB of actual signal; on a real Genesis student-summary page it's
@@ -90,8 +96,9 @@ extension:
 3. Turn on **Developer mode** (top right).
 4. Click **Load unpacked** and select the folder you unzipped/cloned (the
    one containing `manifest.json`).
-5. Open a Google Classroom page. You should see a small "Backpack captured
-   this page" toast in the bottom right after a moment.
+5. Click the Backpack icon in the toolbar, press **Start capture**, and open
+   a Google Classroom page. You should see a small "Backpack captured this
+   page" toast in the bottom right after a moment.
 
 > **A managed/school Chrome profile may block this.** Some districts push a
 > policy (`ExtensionInstallBlocklist`) that prevents installing *any*
@@ -102,13 +109,21 @@ extension:
 
 ## Using it
 
-- **Automatic capture**: just browse Classroom normally. Every page load
-  auto-captures after it settles; scrolling further down and pausing
-  re-captures to pick up newly-revealed (lazy-loaded) items.
-- **Manual capture**: click the toolbar icon → **Capture this tab**.
-- **Export**: click the toolbar icon → **Export JSON** → choose where to
-  save. The file contains every capture currently stored, each with its
-  own timestamp, source URL, account index, and reduced text.
+1. Click the Backpack icon in Chrome's toolbar and press **Start capture**.
+   A red **REC** badge sits on the icon while capture is on.
+2. Browse your child's Google Classroom and Genesis pages the way you
+   normally would. Every page you open is saved once it finishes loading
+   (including switching between classes, which Classroom does without
+   reloading), and scrolling down and pausing picks up items that load as
+   you scroll. There's nothing to click on each page.
+3. Press **End capture** when you're done. Capture also turns itself off
+   whenever Chrome restarts, so it's never left running by accident.
+4. Press **Export capture** and choose where to save. The file contains
+   every saved page, each with its own timestamp, address, account index,
+   and reduced text.
+
+- **One page only**: **Capture just this page** saves the current tab once,
+  without starting a session.
 - **Undo**: right after a capture, the toast that appears has an **Undo**
   button for a few seconds.
 - **Delete**: open the popup to see every stored capture with a status
@@ -141,6 +156,16 @@ Classroom, Genesis, or any school district.
 
 ## Privacy
 
+- **It only works on two kinds of site**: Google Classroom
+  (`classroom.google.com`) and Genesis Parent Portal pages
+  (`…/genesis/parents`). Chrome enforces this through `manifest.json`'s
+  content-script matches and host permissions: on every other website the
+  extension's code is never loaded, so it can't see, read, or record the
+  rest of your browsing. The popup lists both sites and tells you whether
+  the current tab is one of them (`src/supported-sites.js`).
+- **Nothing is captured until you press Start capture.** A red REC badge
+  shows while it's on, and it turns off when you press End capture or
+  Chrome restarts.
 - Everything stays in the browser's local extension storage until you
   explicitly export it.
 - No network requests anywhere in this codebase — you can verify this by

@@ -6,7 +6,11 @@
   --border: #d8e6e3;
   --accent: #167f7a;
   --danger: #b4432f;
+  --rec: #c62828;
   --card: #ffffff;
+  --ok-bg: #e3f4ec;
+  --ok-fg: #1d6b45;
+  --off-bg: #f1f3f2;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -17,7 +21,11 @@
     --border: #24352f;
     --accent: #4fd1c5;
     --danger: #ff8a70;
+    --rec: #ff6b6b;
     --card: #17221f;
+    --ok-bg: #163f2c;
+    --ok-fg: #7be8a6;
+    --off-bg: #1c2825;
   }
 }
 
@@ -42,10 +50,106 @@ h1 {
   font-size: 15px;
 }
 
-.subtitle {
+h2 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.subtitle,
+.muted {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
+}
+
+.session {
+  margin: 0 16px 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.session.active {
+  border-color: var(--rec);
+}
+
+.session-state {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.session-state strong {
+  font-size: 14px;
+}
+
+.dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.session.active .dot {
+  background: var(--rec);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.session button {
+  width: 100%;
+  padding: 9px 10px;
+  font-size: 14px;
+}
+
+.sites {
+  margin: 0 16px 12px;
+}
+
+.sites ul {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sites li {
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-note {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+.tab-note.ok {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.tab-note.off {
+  background: var(--off-bg);
+  color: var(--muted);
 }
 
 .actions {
@@ -65,10 +169,22 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #04211f;
+  font-weight: 600;
+}
+
+button.stop {
+  background: var(--rec);
+  border-color: var(--rec);
+  color: #fff;
   font-weight: 600;
 }
 
@@ -86,9 +202,13 @@ button.danger {
 }
 
 .list-wrap {
-  max-height: 320px;
+  max-height: 280px;
   overflow-y: auto;
   border-top: 1px solid var(--border);
+}
+
+.list-title {
+  padding: 10px 16px 0;
 }
 
 #captureList {

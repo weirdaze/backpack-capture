@@ -14,6 +14,7 @@
   const SETTLE_QUIET_MS = 750;
   const SETTLE_CEILING_MS = 10000;
   const AUTO_CAPTURE_COOLDOWN_MS = 5000;
+  const SESSION_KEY = "backpack_session"; // written by background.js
 
   function waitForSettle() {
     return new Promise((resolve) => {
@@ -215,18 +216,42 @@
       return undefined;
     });
 
-    setTimeout(() => {
+    // Nothing is captured automatically unless the person pressed "Start
+    // capture" in the popup. A one-off "Capture just this page"
+    // (MANUAL_CAPTURE above) still works any time.
+    async function sessionActive() {
+      try {
+        const data = await chrome.storage.local.get(SESSION_KEY);
+        return Boolean(data[SESSION_KEY] && data[SESSION_KEY].active);
+      } catch (e) {
+        return false; // the extension was reloaded underneath this page
+      }
+    }
+
+    async function autoCapture(trigger) {
+      if (!(await sessionActive())) return;
+      if (Date.now() - lastAutoCaptureAt < AUTO_CAPTURE_COOLDOWN_MS) return;
       lastAutoCaptureAt = Date.now();
-      runCapture("auto");
-    }, 1000);
+      runCapture(trigger);
+    }
+
+    setTimeout(() => autoCapture("auto"), 1000);
+
+    // Pressing Start while this page is already open captures it right away.
+    chrome.storage.onChanged.addListener((changes, area) => {
+      const change = area === "local" && changes[SESSION_KEY];
+      if (!change) return;
+      const wasActive = Boolean(change.oldValue && change.oldValue.active);
+      const isActive = Boolean(change.newValue && change.newValue.active);
+      if (isActive && !wasActive && document.visibilityState === "visible") {
+        lastAutoCaptureAt = 0;
+        autoCapture("auto");
+      }
+    });
 
     function scheduleRecapture(idleTimerRef, delayMs, trigger) {
       if (idleTimerRef.id) clearTimeout(idleTimerRef.id);
-      idleTimerRef.id = setTimeout(() => {
-        if (Date.now() - lastAutoCaptureAt < AUTO_CAPTURE_COOLDOWN_MS) return;
-        lastAutoCaptureAt = Date.now();
-        runCapture(trigger);
-      }, delayMs);
+      idleTimerRef.id = setTimeout(() => autoCapture(trigger), delayMs);
     }
 
     const scrollIdleTimer = {};

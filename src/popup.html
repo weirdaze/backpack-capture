@@ -8,22 +8,47 @@
   <body>
     <header>
       <h1>Backpack Capture</h1>
-      <p class="subtitle">Read-only Classroom capture. Nothing leaves your browser until you export.</p>
+      <p class="subtitle">Saves the school pages you open, right here in your browser. Nothing is sent anywhere.</p>
     </header>
 
+    <section id="session" class="session">
+      <div class="session-state">
+        <span class="dot" aria-hidden="true"></span>
+        <div>
+          <strong id="sessionTitle">Not capturing</strong>
+          <div id="sessionDetail" class="muted"></div>
+        </div>
+      </div>
+      <button id="sessionToggle" class="primary">Start capture</button>
+    </section>
+
+    <section class="sites">
+      <h2>Only works on these sites</h2>
+      <ul id="siteList"></ul>
+      <p class="muted">
+        Every other website is off-limits. Chrome only lets this extension run on the pages above, so it can't see or
+        record the rest of your browsing.
+      </p>
+      <p id="tabNote" class="tab-note" hidden></p>
+    </section>
+
     <section class="actions">
-      <button id="captureNow" class="primary">Capture this tab</button>
-      <button id="exportJson">Export JSON</button>
+      <button id="captureNow">Capture just this page</button>
+      <button id="exportCapture">Export capture</button>
       <button id="clearAll" class="danger">Clear all</button>
     </section>
 
     <p id="status" class="status" hidden></p>
 
     <section class="list-wrap">
+      <h2 class="list-title">Saved pages (<span id="captureCount">0</span>)</h2>
       <ul id="captureList"></ul>
-      <p id="emptyState" class="empty" hidden>No captures yet. Open a Google Classroom page and it will capture automatically, or click "Capture this tab".</p>
+      <p id="emptyState" class="empty" hidden>
+        Nothing saved yet. Press Start capture, then open your child's Google Classroom or Genesis pages.
+      </p>
     </section>
 
+    <script src="supported-sites.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
