@@ -178,6 +178,26 @@
   // separate archived/active filtering needed.
   const COURSE_HREF_RE = /^https:\/\/classroom\.google\.com\/u\/\d+\/c\/([A-Za-z0-9_-]+)(?:[/?#]|$)/;
 
+  // A course tile/nav link resolves to that course's *Stream* page -
+  // confirmed real from a homepage capture, and Google's own docs describe
+  // Stream as a message board, not the assignment list (see docs/DESIGN.md
+  // for the fuller evidence). What the crawl actually needs to visit is
+  // that course's Classwork tab. There's no real anchor for that on the
+  // homepage itself - the Classwork tab link only exists inside a class's
+  // own sub-nav, one hop past where courseLinks is extracted - so, unlike
+  // every other link in this file, `classworkHref` here IS constructed
+  // rather than read off a real anchor. It's a narrower exception than
+  // that rule usually allows: /w/<classId>/t/all is a stable, public URL
+  // shape (not an opaque internal id) that a real Classwork-tab visit
+  // already produced in a real capture examined while building this
+  // (test/fixtures - and docs/DESIGN.md - reference it), so the risk this
+  // rule normally guards against - guessing wrong and mislabeling one
+  // page's content under another's address - doesn't apply the same way.
+  function classworkHrefFor(classId, url) {
+    const acct = accountIndexFromUrl(url) || 0;
+    return `https://classroom.google.com/u/${acct}/w/${classId}/t/all`;
+  }
+
   function extractCourseLinks(reducedTree, url) {
     const seen = new Set();
     const links = [];
@@ -189,7 +209,12 @@
         const m = absolute && COURSE_HREF_RE.exec(absolute);
         if (m && isClassId(m[1]) && !seen.has(m[1])) {
           seen.add(m[1]);
-          links.push({ href: absolute, classId: m[1], title: (attrs["aria-label"] || "").trim() || null });
+          links.push({
+            href: absolute,
+            classworkHref: classworkHrefFor(m[1], url),
+            classId: m[1],
+            title: (attrs["aria-label"] || "").trim() || null,
+          });
         }
       }
       for (const child of node.children || []) walk(child);
