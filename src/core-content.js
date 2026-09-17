@@ -192,7 +192,20 @@
           return;
         }
 
-        const response = await chrome.runtime.sendMessage({ type: "STORE_CAPTURE", envelope });
+        // detailLinks/courseLinks (Classroom only, see
+        // src/reducer.js#extractDetailLinks and #extractCourseLinks) ride
+        // along on the same message so the background worker can optionally
+        // drive this tab through them — never sent for a page that isn't a
+        // clean capture, since a login-wall or broken-shape page's "links"
+        // aren't trustworthy.
+        const detailLinks = envelope.status === "ok" ? reduced.detailLinks || [] : [];
+        const courseLinks = envelope.status === "ok" ? reduced.courseLinks || [] : [];
+        const response = await chrome.runtime.sendMessage({
+          type: "STORE_CAPTURE",
+          envelope,
+          detailLinks,
+          courseLinks,
+        });
         if (!response || !response.ok) {
           showToast("Backpack: capture failed to save.");
           return;

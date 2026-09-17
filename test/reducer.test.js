@@ -105,3 +105,91 @@ test("account_index is parsed from the /u/<n>/ URL segment", () => {
   assert.equal(global.window.BackpackReducer.accountIndexFromUrl("https://classroom.google.com/u/2/c/AAA"), 2);
   assert.equal(global.window.BackpackReducer.accountIndexFromUrl("https://classroom.google.com/h"), null);
 });
+
+test("extractDetailLinks follows real assignment and material anchors only", () => {
+  const url = "https://classroom.google.com/u/0/c/AAA";
+  const dom = loadFixture("classroom-detail-links.html", url);
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+
+  assert.equal(reduced.detailLinks.length, 3); // deduped, and the two hrefless/non-details items left out
+
+  const assignment = reduced.detailLinks.find((l) => l.href.endsWith("/a/BBB/details"));
+  assert.deepEqual(assignment, {
+    href: "https://classroom.google.com/u/0/c/AAA/a/BBB/details",
+    kind: "assignment",
+    title: "Chapter 4 Reading Response",
+    due: "Tomorrow",
+  });
+
+  const material = reduced.detailLinks.find((l) => l.href.endsWith("/m/DDD/details"));
+  assert.deepEqual(material, {
+    href: "https://classroom.google.com/u/0/c/AAA/m/DDD/details", // resolved from a relative href
+    kind: "material",
+    title: "How To Craft A Thesis Statement",
+    due: null,
+  });
+});
+
+test("extractDetailLinks follows a real anchor even when its label doesn't match the Assignment:/Material: convention", () => {
+  const url = "https://classroom.google.com/u/0/c/AAA";
+  const dom = loadFixture("classroom-detail-links.html", url);
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+  const unlabeled = reduced.detailLinks.find((l) => l.href.endsWith("/a/EEE/details"));
+  assert.deepEqual(unlabeled, {
+    href: "https://classroom.google.com/u/0/c/AAA/a/EEE/details",
+    kind: "assignment", // read off the URL's own /a/ segment, not the label
+    title: null,
+    due: null,
+  });
+});
+
+test("extractDetailLinks never invents a URL for an item with no real anchor", () => {
+  const url = "https://classroom.google.com/u/0/c/AAA";
+  const dom = loadFixture("classroom-detail-links.html", url);
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+  assert.equal(
+    reduced.detailLinks.some((l) => l.title === "Using Book Covers To Make Inferences"),
+    false
+  );
+});
+
+test("extractCourseLinks finds real course-tile/nav links, deduped, archived excluded", () => {
+  const url = "https://classroom.google.com/u/0/c/AAA";
+  const dom = loadFixture("classroom-detail-links.html", url);
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+
+  assert.equal(reduced.courseLinks.length, 2); // Geometry + English, deduped by class id
+
+  const geometry = reduced.courseLinks.find((l) => l.classId === "ODcyNDkxNDc4MTk4");
+  assert.deepEqual(geometry, {
+    href: "https://classroom.google.com/u/0/c/ODcyNDkxNDc4MTk4",
+    classId: "ODcyNDkxNDc4MTk4",
+    title: "GEOM A Per A 2026-27 210-1",
+  });
+
+  // English appears twice (nav + tile) - only the first is kept
+  const english = reduced.courseLinks.find((l) => l.classId === "ODc2NDQ0NzExNTM3");
+  assert.equal(english.title, "ENG 2A Block B (26-27) 121-1");
+
+  // the archived-classes link, and the non-class-id "AAA" course-home link,
+  // must never be mistaken for a course
+  assert.equal(
+    reduced.courseLinks.some((l) => l.href.includes("archived") || l.classId === "AAA"),
+    false
+  );
+});
+
+test("parseWorkItemLabel strips quotes and the due-date suffix", () => {
+  const R = global.window.BackpackReducer;
+  assert.deepEqual(R.parseWorkItemLabel('Assignment: "Why Novels Have First Pages" Assignment, due Tomorrow'), {
+    kind: "assignment",
+    title: '"Why Novels Have First Pages" Assignment',
+    due: "Tomorrow",
+  });
+  assert.deepEqual(R.parseWorkItemLabel("Material: Journal Entry #1"), {
+    kind: "material",
+    title: "Journal Entry #1",
+    due: null,
+  });
+  assert.equal(R.parseWorkItemLabel("Announcement: Picture day is Friday"), null);
+});

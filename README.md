@@ -64,9 +64,13 @@ roughly 80KB of actual signal; on a real Genesis student-summary page it's
 
 ## What it does *not* do
 
-- It does not log in for you, submit any form, or automate anything on
+- It does not log in for you, submit any form, or click anything on
   Google's side. If you're not logged in, it detects the login page and
-  refuses to store a capture instead of silently saving "nothing."
+  refuses to store a capture instead of silently saving "nothing." The one
+  navigation it *will* do is opt-in: with **Also open each assignment page**
+  checked, it drives the current tab to a real link Classroom already
+  rendered and back — the same address-based approach templates use, never
+  a click or a form submission.
 - It does not extract structured due-dates/assignments for you — that's a
   deliberately separate next step (see [Scope](#scope-of-this-repo) below).
   This repo only produces the reduced JSON; turning that into a due-work
@@ -129,6 +133,46 @@ extension:
 - **Delete**: open the popup to see every stored capture with a status
   badge (`ok` / `low confidence` / `layout changed?` / `login wall`) and
   delete any of them individually, or clear everything.
+
+### Following each assignment's own page
+
+A class's stream or Classwork list often only shows a title and due date —
+the actual instructions ("how to do this," what's expected) live on the
+assignment's own details page. Check **Also open each assignment/material
+page** before pressing **Start capture** and, every time a Classwork page is
+captured, the same tab briefly opens each assignment or material it links
+to, captures that page too, then returns to where it was. It's on-screen
+the whole time — the tab visibly navigates away and back, with a toast
+naming how many pages it's about to open — never a background fetch.
+
+This only follows a **real link Classroom itself rendered** on the page —
+never one reconstructed from Google's internal ids — so an item Classroom
+shows as a plain button with no link underneath it is simply left out
+rather than guessed at. It won't re-open something already captured this
+session, and it caps how many pages it'll open per Classwork page visited so
+one very full class can't turn a quick check into an open-ended crawl.
+
+### Walking every class from the homepage
+
+The option above only follows links on whatever page you're already
+looking at. To capture every assignment for every class in one go, open
+the Classroom homepage, check **Starting from the Classroom homepage: also
+walk every active class**, then press **Start capture**. The tab visits
+each class's Classwork page (the complete, topic-organized list — not the
+Stream, which Google's own Classroom help documents as a message board and
+which several teachers have reported capping out at a handful of recent
+posts), captures it, opens each assignment/material it finds there, then
+moves to the next class, and finally returns to the homepage. A toast
+tracks it the whole way.
+
+This is a much bigger action than the per-page option — up to 10 classes
+times 20 items each, which can take a while and means the tab is out of
+your hands for a stretch — so it's capped, off by default, and only ever
+triggered by actually landing on the homepage. It only ever walks classes
+the homepage lists as active; Classroom keeps archived classes behind a
+separate link this never follows. Like everything else here, it drives the
+tab to addresses Classroom itself rendered — never a click, never a
+reconstructed URL.
 
 ### Templates — do the same round again another day
 

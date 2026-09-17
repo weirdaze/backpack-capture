@@ -270,6 +270,107 @@ template has its own delete. MV3 service workers are shut down when idle and
 a replay spends its time waiting on page loads, so `runReplay` holds a
 keep-alive interval until it finishes.
 
+## Following assignment/material links, and walking every class (added in 0.5.0)
+
+A class's Classwork/Stream list only gives a title and due date; the actual
+instructions - what the assignment is asking for, what "done" looks like -
+live on the item's own details page (confirmed real: a physical-worksheet
+assignment where the printed page alone was ambiguous, and the Classroom
+details page cleared it up). Capturing that too, without a person having to
+open every item by hand, is what this feature does - as two opt-in,
+off-by-default levels: follow the links on whatever page you're on, or (from
+the homepage specifically) walk every active class first.
+
+**Why extraction, not reconstruction.** `src/reducer.js#extractDetailLinks`
+walks the already-reduced tree for nodes with a real `href` resolving to
+`/c/<classId>/(a|m)/<itemId>/details`, and only those - never one
+reconstructed from `data-stream-item-id` or any other internal id. A real
+capture examined while building this showed the same work item rendered two
+different ways depending on where it appears: as an actual anchor with a
+real `href` (e.g. an upcoming-due widget), or, for the general
+Classwork/Stream list, as a JS-driven `role="link"` element with no `href`
+at all. Reconstructing a details URL from that id plus the page's own class
+id would depend on Google's internal attribute conventions in exactly the
+way `otherClassViews` and `classIdFromUrl` above already refuse to for
+detecting view state - and getting it wrong here isn't "captures nothing,"
+it's "captures the wrong assignment's instructions under the wrong page's
+address." So an item with no real anchor is left out, degrading honestly the
+same way a `viewReady: false` page or a timed-out replay step does. Which
+`aria-label` wording is present decides only the cosmetic title/due shown in
+a toast, never whether the link is followed - `kind` (assignment vs.
+material) is read off the href's own `/a/`-vs-`/m/` segment instead, since a
+details page reached from a different rendering could plausibly carry a
+label that doesn't match the "Assignment:"/"Material:" convention at all -
+unconfirmed for any real capture in hand, but cheap to guard against, so the
+code doesn't require it. A fixture covers both the confirmed-real shape and
+this defensive one (`test/fixtures/classroom-detail-links.html`).
+
+**Why Classwork, not Stream, for finding a class's assignments.**
+`src/reducer.js#extractCourseLinks` finds a class's own link the same way -
+a real `role="menuitem"` anchor to a bare `/c/<classId>`, present both in
+the persistent class-switcher nav and the homepage's own course tiles
+(confirmed real against a homepage capture). Landing on a course from there
+goes to its Classwork page (`/w/<classId>/t/all`), not its Stream, on
+purpose: Google's own Classroom help documents Stream as "the class message
+board" while Classwork is where "assignments, questions, and quiz
+assignments" actually live, organized by topic with status and time-period
+filters - and Classroom's own user community has reported Stream capping
+out at a handful of recent posts, which would make it an unreliable source
+for "every assignment in this class." A real Classwork-tab capture examined
+while building this confirmed items there carry the same `href` +
+`aria-label` due-date shape Stream's widget items do.
+
+That same real capture also turned up a separate, pre-existing bug worth
+noting here: a Classwork page captured right after browsing other classes
+still had four other classes' assignments mixed into its own reduced text -
+stale DOM `otherClassViews` doesn't catch, because whatever leftover
+element it's in doesn't carry the `[data-p]` wrapper that function looks
+for. It doesn't corrupt this feature (a link's own `href` always names its
+real class, never the page it was found on), but the capture's stored text
+for that page is noisier than it should be - a fix belongs in
+`otherClassViews`, not here.
+
+**Why a background-driven crawl, not clicking.** Once the links are known,
+following them re-uses the same address-based approach as replay: the
+background worker (`src/background.js`'s `pageCrawls` engine) drives the
+*same* tab to each one with `chrome.tabs.update`, waits for that page's own
+normal capture to land (any `STORE_CAPTURE` from that tab while a step is in
+flight counts as the result - a login-wall or broken-shape capture included,
+so a page that doesn't pan out still degrades to "skipped," never blocks),
+then returns the tab to the page it started from. This is deliberately a
+bigger behavior change than passive capture (the tab visibly navigates away
+and back on its own), which is why each level is gated behind its own
+checkbox in the popup rather than being what **Start capture** always does,
+and why a toast announces it before it happens.
+
+**One engine, two ways in.** `pageCrawls` is a flat, ordered queue of
+typed steps (`{kind: "assignment"|"material"|"course", href, ...}`), keyed
+by tab id so more than one tab can run its own crawl. A plain page's own
+detail links queue directly. A homepage capture's course links queue as
+`"course"` steps instead; landing on one and capturing its Classwork page
+splices *that* page's own detail links in right after it
+(`crawl.queue.splice(crawl.index + 1, 0, ...newSteps)`) - so the whole
+course finishes (depth-first) before the crawl moves to the next course
+(breadth-first across them), and the final "next" is always either the next
+course or, once every course is done, the original homepage. Home is
+recognized narrowly (`HOME_URL_RE` / `isHomeUrl`) to explicitly exclude the
+separate archived-classes page, so "every course this finds" is naturally
+"every *active* course" - archived classes never appear in the normal course
+list at all, so no separate active/archived filtering is needed.
+
+**Bounds.** `MAX_DETAIL_LINKS_PER_VISIT` (20) caps how many assignment/
+material links one course - or one plain page visit - queues at once, and
+`MAX_COURSES_PER_CRAWL` (10) caps how many courses one homepage crawl walks.
+Every visited link and every visited class id is added to the session's
+`visitedDetailLinks`/`visitedCourseIds`, so recapturing the same page later
+in the same session (scroll-settle, click-settle, a revisit) never re-queues
+it - a homepage recapture after finishing a walk queues nothing further.
+Ending the session mid-crawl (`END_SESSION`) tears down any in-flight crawl
+immediately rather than waiting out its per-step timeout, and a course step
+gets a longer timeout (`COURSE_STEP_TIMEOUT_MS`, 30s) than a detail step
+(`DETAIL_STEP_TIMEOUT_MS`, 20s) since a Classwork page's own settle/retry
+loop can take longer.
+
 ## Goal: resolve "what class is my child in right now" (not built yet)
 
 The data needed for this already splits across pieces captured today, plus
