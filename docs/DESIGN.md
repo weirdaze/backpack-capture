@@ -360,12 +360,18 @@ list at all, so no separate active/archived filtering is needed.
 
 **Bounds.** `MAX_DETAIL_LINKS_PER_VISIT` (20) caps how many assignment/
 material links one course - or one plain page visit - queues at once, and
-`MAX_COURSES_PER_CRAWL` (10) caps how many courses one homepage crawl walks.
-Every visited link and every visited class id is added to the session's
-`visitedDetailLinks`/`visitedCourseIds`, so recapturing the same page later
-in the same session (scroll-settle, click-settle, a revisit) never re-queues
-it - a homepage recapture after finishing a walk queues nothing further.
-Ending the session mid-crawl (`END_SESSION`) tears down any in-flight crawl
+`MAX_COURSES_PER_CRAWL` (10) caps how many courses *one* crawl walks before
+returning to the homepage - not the whole account. Every visited link and
+every visited class id is added to the session's `visitedDetailLinks`/
+`visitedCourseIds`, so recapturing the same page later in the same session
+(scroll-settle, click-settle, a revisit) never re-queues it. Confirmed real
+on a full account with more than 10 active courses: returning to the
+homepage after one 10-course batch triggers the homepage's own normal
+recapture, which starts a second batch for whatever courses aren't in
+`visitedCourseIds` yet - so a large account gets walked in successive
+capped batches rather than being stopped at 10 forever, and the walk is
+over once a homepage recapture finds nothing left to queue. Ending the
+session mid-crawl (`END_SESSION`) tears down any in-flight crawl
 immediately rather than waiting out its per-step timeout, and a course step
 gets a longer timeout (`COURSE_STEP_TIMEOUT_MS`, 30s) than a detail step
 (`DETAIL_STEP_TIMEOUT_MS`, 20s) since a Classwork page's own settle/retry

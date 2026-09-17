@@ -162,7 +162,8 @@ test("extractCourseLinks finds real course-tile/nav links, deduped, archived exc
 
   const geometry = reduced.courseLinks.find((l) => l.classId === "ODcyNDkxNDc4MTk4");
   assert.deepEqual(geometry, {
-    href: "https://classroom.google.com/u/0/c/ODcyNDkxNDc4MTk4",
+    href: "https://classroom.google.com/u/0/c/ODcyNDkxNDc4MTk4", // the course's Stream page - never visited directly
+    classworkHref: "https://classroom.google.com/u/0/w/ODcyNDkxNDc4MTk4/t/all", // what the crawl actually visits
     classId: "ODcyNDkxNDc4MTk4",
     title: "GEOM A Per A 2026-27 210-1",
   });
@@ -177,6 +178,14 @@ test("extractCourseLinks finds real course-tile/nav links, deduped, archived exc
     reduced.courseLinks.some((l) => l.href.includes("archived") || l.classId === "AAA"),
     false
   );
+});
+
+test("extractCourseLinks builds the Classwork URL under the page's own account index", () => {
+  const url = "https://classroom.google.com/u/2/c/AAA";
+  const dom = loadFixture("classroom-detail-links.html", url);
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+  const geometry = reduced.courseLinks.find((l) => l.classId === "ODcyNDkxNDc4MTk4");
+  assert.equal(geometry.classworkHref, "https://classroom.google.com/u/2/w/ODcyNDkxNDc4MTk4/t/all");
 });
 
 test("parseWorkItemLabel strips quotes and the due-date suffix", () => {

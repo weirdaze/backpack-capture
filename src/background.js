@@ -356,7 +356,7 @@ function startCourseCrawl(tabId, session, returnUrl, courseLinks) {
   const queue = [];
   for (const link of courseLinks) {
     if (visited.has(link.classId)) continue;
-    queue.push({ kind: "course", href: link.href, classId: link.classId });
+    queue.push({ kind: "course", href: link.classworkHref, classId: link.classId });
     if (queue.length >= MAX_COURSES_PER_CRAWL) break;
   }
   if (!queue.length) return;
