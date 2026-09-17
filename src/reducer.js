@@ -95,6 +95,109 @@
     return { others, ready: !sawClassView || sawUrlView };
   }
 
+  // Matches a Classroom work-item details page once its href is resolved to
+  // an absolute URL: /u/<n>/c/<classId>/(a|m)/<itemId>/details. Confirmed
+  // real for both assignments and materials against a fixture shaped after
+  // an actual capture (test/fixtures/classroom-stream.html).
+  const DETAIL_HREF_RE = /^https:\/\/classroom\.google\.com\/u\/\d+\/c\/[^/]+\/(a|m)\/[^/]+\/details(?:[/?#]|$)/;
+
+  // "Assignment: Chapter 4 Reading Response, due Tomorrow" ->
+  // {kind: "assignment", title: "Chapter 4 Reading Response", due: "Tomorrow"}.
+  // Titles are sometimes fully quoted by Classroom ('Material: "Title"') and
+  // sometimes not, and occasionally quoted plus a trailing literal word
+  // ('Assignment: "Title" Assignment, due X') - only the fully-quoted case
+  // is unwrapped; the messier case is left as-is rather than guessed at,
+  // since this title is cosmetic (toast text) and never used for navigation.
+  function parseWorkItemLabel(label) {
+    const m = /^(Assignment|Material):\s*(.*?)(?:,\s*due\s+(.+))?$/i.exec(label || "");
+    if (!m) return null;
+    let title = m[2].trim();
+    if (title.length > 1 && title.startsWith('"') && title.endsWith('"')) {
+      title = title.slice(1, -1);
+    }
+    return { kind: m[1].toLowerCase(), title, due: m[3] ? m[3].trim() : null };
+  }
+
+  function resolveHref(href, url) {
+    try {
+      return new global.URL(href, url || undefined).href;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Finds every assignment/material this page links to its own details page
+  // for — real anchors Classroom itself rendered, resolved to absolute URLs.
+  // Deliberately never reconstructed from data-stream-item-id or any other
+  // internal id: an item Classroom renders as a JS-driven button with no
+  // href (confirmed real for some Stream-tab items) is simply left out,
+  // rather than guessing a details URL that might land on the wrong page.
+  //
+  // Whether a link qualifies rests on the href alone (resolving to
+  // /c/<class>/(a|m)/<item>/details), with kind read off that same path
+  // segment - never on the aria-label matching "Assignment:"/"Material:".
+  // Confirmed real that the same work item can carry a real anchor in one
+  // rendering (a due-soon widget) and only a label-less JS button in
+  // another (the general Stream list) - and a details page's own label
+  // convention is unverified, so a link real Classwork/Stream data does
+  // carry shouldn't be dropped just because its label doesn't match the
+  // wording seen elsewhere. The label is used only for a cosmetic
+  // title/due-date when it happens to match.
+  function extractDetailLinks(reducedTree, url) {
+    const seen = new Set();
+    const links = [];
+    function walk(node) {
+      if (!node) return;
+      const attrs = node.attrs;
+      if (attrs && attrs.href) {
+        const absolute = resolveHref(attrs.href, url);
+        const m = absolute && DETAIL_HREF_RE.exec(absolute);
+        if (m && !seen.has(absolute)) {
+          seen.add(absolute);
+          const parsed = parseWorkItemLabel(attrs["aria-label"]);
+          links.push({
+            href: absolute,
+            kind: parsed ? parsed.kind : m[1] === "a" ? "assignment" : "material",
+            title: parsed ? parsed.title : null,
+            due: parsed ? parsed.due : null,
+          });
+        }
+      }
+      for (const child of node.children || []) walk(child);
+    }
+    walk(reducedTree);
+    return links;
+  }
+
+  // A course tile/nav-entry link: /u/<n>/c/<classId>, nothing after it.
+  // Confirmed real (both in the left-hand class switcher, present on every
+  // Classroom page, and the homepage's own course list) as a real anchor
+  // with role="menuitem". Archived classes don't appear here at all - they
+  // sit behind a separate /h/archived link this pattern never matches - so
+  // "every course this finds" is naturally "every active course," with no
+  // separate archived/active filtering needed.
+  const COURSE_HREF_RE = /^https:\/\/classroom\.google\.com\/u\/\d+\/c\/([A-Za-z0-9_-]+)(?:[/?#]|$)/;
+
+  function extractCourseLinks(reducedTree, url) {
+    const seen = new Set();
+    const links = [];
+    function walk(node) {
+      if (!node) return;
+      const attrs = node.attrs;
+      if (attrs && attrs.href) {
+        const absolute = resolveHref(attrs.href, url);
+        const m = absolute && COURSE_HREF_RE.exec(absolute);
+        if (m && isClassId(m[1]) && !seen.has(m[1])) {
+          seen.add(m[1]);
+          links.push({ href: absolute, classId: m[1], title: (attrs["aria-label"] || "").trim() || null });
+        }
+      }
+      for (const child of node.children || []) walk(child);
+    }
+    walk(reducedTree);
+    return links;
+  }
+
   function reduce(rootElement, options) {
     const opts = options || {};
     const views = otherClassViews(rootElement, opts.url || "");
@@ -104,6 +207,8 @@
       shapeOk: checkClassroomShape(base.tree),
       loginWall: looksLikeLoginWall(opts.url || "", base.tree),
       viewReady: views.ready,
+      detailLinks: extractDetailLinks(base.tree, opts.url || ""),
+      courseLinks: extractCourseLinks(base.tree, opts.url || ""),
     };
   }
 
@@ -115,6 +220,9 @@
     accountIndexFromUrl,
     classIdFromUrl,
     otherClassViews,
+    parseWorkItemLabel,
+    extractDetailLinks,
+    extractCourseLinks,
     reduce,
   };
 })(typeof window !== "undefined" ? window : globalThis);

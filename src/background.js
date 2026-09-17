@@ -14,9 +14,29 @@ const TEMPLATES_KEY = "backpack_templates"; // deliberately NOT cleared by CLEAR
 const REPLAY_KEY = "backpack_replay";
 const MAX_CAPTURES = 500; // simple cap so storage.local never grows unbounded
 const MAX_SESSION_PAGES = 300;
-const IDLE_SESSION = { active: false, startedAt: null, count: 0, pages: [] };
+const IDLE_SESSION = {
+  active: false,
+  startedAt: null,
+  count: 0,
+  pages: [],
+  followAssignmentLinks: false,
+  crawlAllCourses: false,
+  visitedDetailLinks: [],
+  visitedCourseIds: [],
+};
 const PAGE_STEP_TIMEOUT_MS = 45000;
 const PROMPT_STEP_TIMEOUT_MS = 180000;
+const DETAIL_STEP_TIMEOUT_MS = 20000;
+const COURSE_STEP_TIMEOUT_MS = 30000; // a Classwork page's own retry loop can take longer to settle than a details page
+const MAX_DETAIL_LINKS_PER_VISIT = 20; // a class's full Classwork list can run to dozens of items
+const MAX_COURSES_PER_CRAWL = 10; // a full course load can run well past this - keep one homepage crawl to a sane size
+// A Classroom homepage/nav URL: /u/<n>/h, /u/<n>/h/st, ... but not the
+// separate archived-classes listing (/u/<n>/h/archived) - that page's own
+// course tiles are archived classes, which the crawl should never walk.
+const HOME_URL_RE = /^https:\/\/classroom\.google\.com\/u\/\d+\/h(?:[/?#]|$)/;
+function isHomeUrl(url) {
+  return HOME_URL_RE.test(url) && !/\/h\/archived(?:[/?#]|$)/.test(url);
+}
 
 async function readKey(key, fallback) {
   const data = await chrome.storage.local.get(key);
@@ -169,6 +189,194 @@ async function runReplay(template) {
   }
 }
 
+// ---- assignment-link crawl ---------------------------------------------------
+//
+// Opt-in (per session, off by default): when a captured Classroom page
+// carries real links this is on for, the same tab is driven to each one in
+// turn — same idea as replay, but scoped to one already-open tab and
+// started automatically by a capture rather than a saved template. Each
+// stop is captured by the normal STORE_CAPTURE path, so its content ends up
+// alongside the rest of the session. The tab always returns to the page it
+// started from.
+//
+// One engine, two ways in:
+//  - a plain page's own assignment/material links (src/reducer.js
+//    #extractDetailLinks) queue directly as "assignment"/"material" steps.
+//  - the homepage's course links (#extractCourseLinks) queue as "course"
+//    steps; landing on a course's Classwork page then splices whatever
+//    assignment/material links THAT page carries in right after it, so the
+//    whole course is finished before the crawl moves to the next one - a
+//    breadth-first walk of courses, depth-first within each one.
+const pageCrawls = new Map(); // tabId -> { queue, index, returnUrl, awaiting, timer, keepAlive, captured, skipped, coursesVisited }
+
+function clearCrawlTimers(crawl) {
+  if (crawl.timer) clearTimeout(crawl.timer);
+  if (crawl.keepAlive) clearInterval(crawl.keepAlive);
+}
+
+function crawlSummary(crawl) {
+  const pages = `${crawl.captured} page${crawl.captured === 1 ? "" : "s"}`;
+  const courses = crawl.coursesVisited ? `${crawl.coursesVisited} class${crawl.coursesVisited === 1 ? "" : "es"}, ` : "";
+  const skipped = crawl.skipped ? `, ${crawl.skipped} skipped` : "";
+  return `Backpack: captured ${courses}${pages}${skipped}.`;
+}
+
+async function finishCrawl(tabId) {
+  const crawl = pageCrawls.get(tabId);
+  if (!crawl) return;
+  clearCrawlTimers(crawl);
+  pageCrawls.delete(tabId);
+  try {
+    await chrome.tabs.update(tabId, { url: crawl.returnUrl });
+  } catch (e) {
+    return; // tab is gone - nothing left to show a toast on
+  }
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: "SHOW_REPLAY_TOAST", message: crawlSummary(crawl) });
+  } catch (e) {
+    // no content script on the return page - nothing to show it on
+  }
+}
+
+async function goToNextCrawlStep(tabId) {
+  const crawl = pageCrawls.get(tabId);
+  if (!crawl) return;
+  const session = await getSession();
+  if (!session.active || crawl.index >= crawl.queue.length) {
+    await finishCrawl(tabId);
+    return;
+  }
+  const step = crawl.queue[crawl.index];
+  crawl.awaiting = step.href;
+  try {
+    await chrome.tabs.update(tabId, { url: step.href });
+  } catch (e) {
+    await finishCrawl(tabId); // tab closed mid-crawl
+    return;
+  }
+  clearTimeout(crawl.timer);
+  const timeoutMs = step.kind === "course" ? COURSE_STEP_TIMEOUT_MS : DETAIL_STEP_TIMEOUT_MS;
+  crawl.timer = setTimeout(() => advanceCrawlStep(tabId, { timedOut: true }), timeoutMs);
+}
+
+// Builds the (already deduped against what this session has visited)
+// assignment/material steps for one course's worth of detail links, capped
+// per course so one very full class can't turn a quick check into an
+// open-ended crawl.
+function detailStepsFrom(detailLinks, session, alreadyQueued) {
+  const visited = new Set(session.visitedDetailLinks || []);
+  const steps = [];
+  for (const link of detailLinks || []) {
+    if (visited.has(link.href) || alreadyQueued.has(link.href)) continue;
+    alreadyQueued.add(link.href);
+    steps.push({ kind: link.kind, href: link.href });
+    if (steps.length >= MAX_DETAIL_LINKS_PER_VISIT) break;
+  }
+  return steps;
+}
+
+// Any STORE_CAPTURE from this tab while a step is in flight counts as that
+// step's result - success or a login-wall/broken-shape capture alike - so a
+// page that doesn't pan out still counts as "skipped", never blocks the
+// crawl. `result` carries what that capture actually found, when it wasn't
+// a timeout: {detailLinks, courseLinks} (only one is ever non-empty,
+// depending on which kind of step just landed).
+async function advanceCrawlStep(tabId, result) {
+  const crawl = pageCrawls.get(tabId);
+  if (!crawl) return;
+  clearTimeout(crawl.timer);
+  const step = crawl.queue[crawl.index];
+  const timedOut = Boolean(result && result.timedOut);
+  if (timedOut) crawl.skipped++;
+  else crawl.captured++;
+
+  const session = await getSession();
+  if (session.active) {
+    if (step.kind === "course") {
+      if (!timedOut) crawl.coursesVisited++;
+      const visited = new Set(session.visitedCourseIds || []);
+      visited.add(step.classId);
+      await saveSession({ ...session, visitedCourseIds: [...visited] });
+      // Splice this course's own assignment/material links in right after
+      // it, so the whole course finishes before the crawl moves on to the
+      // next one - depth-first within a course, breadth-first across them.
+      if (!timedOut && result && result.detailLinks && result.detailLinks.length) {
+        const alreadyQueued = new Set(crawl.queue.map((s) => s.href));
+        const newSteps = detailStepsFrom(result.detailLinks, session, alreadyQueued);
+        crawl.queue.splice(crawl.index + 1, 0, ...newSteps);
+      }
+    } else {
+      const visited = new Set(session.visitedDetailLinks || []);
+      visited.add(step.href);
+      await saveSession({ ...session, visitedDetailLinks: [...visited] });
+    }
+  }
+
+  crawl.index++;
+  crawl.awaiting = null;
+  await goToNextCrawlStep(tabId);
+}
+
+function startCrawl(tabId, returnUrl, queue, toastMessage) {
+  if (pageCrawls.has(tabId) || !queue.length) return; // a crawl is already running in this tab
+  pageCrawls.set(tabId, {
+    queue,
+    index: 0,
+    captured: 0,
+    skipped: 0,
+    coursesVisited: 0,
+    returnUrl,
+    awaiting: null,
+    timer: null,
+    keepAlive: null,
+  });
+  const crawl = pageCrawls.get(tabId);
+  // MV3 service workers can be shut down while idle; a crawl spends most of
+  // its time waiting on page loads, same as replay.
+  crawl.keepAlive = setInterval(() => chrome.runtime.getPlatformInfo(), 20000);
+  chrome.tabs.sendMessage(tabId, { type: "SHOW_REPLAY_TOAST", message: toastMessage }).catch(() => {
+    // no content script yet on this tab - the navigation itself still proceeds
+  });
+  goToNextCrawlStep(tabId);
+}
+
+function startDetailOnlyCrawl(tabId, session, returnUrl, detailLinks) {
+  const queue = detailStepsFrom(detailLinks, session, new Set());
+  if (!queue.length) return;
+  startCrawl(
+    tabId,
+    returnUrl,
+    queue,
+    `Backpack: opening ${queue.length} assignment page${queue.length === 1 ? "" : "s"} to capture instructions…`
+  );
+}
+
+function startCourseCrawl(tabId, session, returnUrl, courseLinks) {
+  const visited = new Set(session.visitedCourseIds || []);
+  const queue = [];
+  for (const link of courseLinks) {
+    if (visited.has(link.classId)) continue;
+    queue.push({ kind: "course", href: link.href, classId: link.classId });
+    if (queue.length >= MAX_COURSES_PER_CRAWL) break;
+  }
+  if (!queue.length) return;
+  startCrawl(
+    tabId,
+    returnUrl,
+    queue,
+    `Backpack: walking ${queue.length} class${queue.length === 1 ? "" : "es"} to capture their Classwork and assignments…`
+  );
+}
+
+// A crawling tab that's closed mid-flight would otherwise leak its timer
+// and keep-alive interval forever.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  const crawl = pageCrawls.get(tabId);
+  if (!crawl) return;
+  clearCrawlTimers(crawl);
+  pageCrawls.delete(tabId);
+});
+
 // ---- messages ---------------------------------------------------------------
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -186,14 +394,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await saveSession({ ...session, count: session.count + 1, pages });
       }
       if (runner && runner.onCapture && sender.tab && sender.tab.id === runner.tabId) runner.onCapture({});
+
+      const tabId = sender.tab && sender.tab.id;
       sendResponse({ ok: true });
+
+      // Fire-and-forget: the content script's own "captured this page" toast
+      // shouldn't wait on whether a crawl starts or advances.
+      if (tabId != null) {
+        const crawl = pageCrawls.get(tabId);
+        if (crawl && crawl.awaiting) {
+          advanceCrawlStep(tabId, { detailLinks: message.detailLinks, courseLinks: message.courseLinks });
+        } else if (session.active && message.envelope.adapter === "classroom" && message.envelope.status === "ok") {
+          if (session.crawlAllCourses && isHomeUrl(message.envelope.source_url) && message.courseLinks && message.courseLinks.length) {
+            startCourseCrawl(tabId, session, message.envelope.source_url, message.courseLinks);
+          } else if (session.followAssignmentLinks && message.detailLinks && message.detailLinks.length) {
+            startDetailOnlyCrawl(tabId, session, message.envelope.source_url, message.detailLinks);
+          }
+        }
+      }
     })();
     return true;
   }
 
   if (message && message.type === "START_SESSION") {
     (async () => {
-      const session = { active: true, startedAt: new Date().toISOString(), count: 0, pages: [] };
+      const session = {
+        active: true,
+        startedAt: new Date().toISOString(),
+        count: 0,
+        pages: [],
+        followAssignmentLinks: Boolean(message.followAssignmentLinks),
+        crawlAllCourses: Boolean(message.crawlAllCourses),
+        visitedDetailLinks: [],
+        visitedCourseIds: [],
+      };
       await saveSession(session);
       sendResponse({ ok: true, session });
     })();
@@ -204,6 +438,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       const session = { ...(await getSession()), active: false };
       await saveSession(session);
+      // Don't leave a tab sitting mid-crawl for up to its step timeout
+      // waiting to notice the session ended.
+      for (const tabId of [...pageCrawls.keys()]) finishCrawl(tabId);
       sendResponse({ ok: true, session });
     })();
     return true;

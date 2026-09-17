@@ -38,7 +38,26 @@ function setStatus(text) {
   el.hidden = !text;
 }
 
+const FOLLOW_LINKS_PREF_KEY = "backpack_follow_links_pref";
+const CRAWL_ALL_COURSES_PREF_KEY = "backpack_crawl_all_courses_pref";
+
 let currentSession = { active: false, startedAt: null, count: 0, pages: [] };
+
+// Remembered across popup opens (it's just a UI default, not session state -
+// the session itself is what actually turns the behavior on for a run).
+async function initOptInCheckboxes() {
+  const data = await chrome.storage.local.get([FOLLOW_LINKS_PREF_KEY, CRAWL_ALL_COURSES_PREF_KEY]);
+  document.getElementById("followLinks").checked = Boolean(data[FOLLOW_LINKS_PREF_KEY]);
+  document.getElementById("crawlAllCourses").checked = Boolean(data[CRAWL_ALL_COURSES_PREF_KEY]);
+}
+
+document.getElementById("followLinks").addEventListener("change", (e) => {
+  chrome.storage.local.set({ [FOLLOW_LINKS_PREF_KEY]: e.target.checked });
+});
+
+document.getElementById("crawlAllCourses").addEventListener("change", (e) => {
+  chrome.storage.local.set({ [CRAWL_ALL_COURSES_PREF_KEY]: e.target.checked });
+});
 
 async function renderSession() {
   const { session } = await chrome.runtime.sendMessage({ type: "GET_SESSION" });
@@ -48,13 +67,29 @@ async function renderSession() {
   const detail = document.getElementById("sessionDetail");
   const toggle = document.getElementById("sessionToggle");
   const save = document.getElementById("saveTemplate");
+  const followLinksRow = document.getElementById("followLinksRow");
+  const followLinks = document.getElementById("followLinks");
+  const crawlAllCoursesRow = document.getElementById("crawlAllCoursesRow");
+  const crawlAllCourses = document.getElementById("crawlAllCourses");
 
   card.classList.toggle("active", session.active);
   if (session.active) {
+    const extras = [
+      session.crawlAllCourses ? "walking every class from the homepage" : null,
+      session.followAssignmentLinks ? "opening each assignment page" : null,
+    ].filter(Boolean);
     title.textContent = session.replaying ? `Replaying ${session.replaying}` : "Capturing";
-    detail.textContent = `Since ${fmtClock(session.startedAt)} · ${pages(session.count)} saved. Just browse, there's nothing to click on each page.`;
+    detail.textContent = `Since ${fmtClock(session.startedAt)} · ${pages(session.count)} saved${
+      extras.length ? ` · ${extras.join(", ")}` : ""
+    }. Just browse, there's nothing to click on each page.`;
     toggle.textContent = "End capture";
     toggle.className = "stop";
+    followLinks.checked = Boolean(session.followAssignmentLinks);
+    followLinks.disabled = true;
+    followLinksRow.classList.add("disabled");
+    crawlAllCourses.checked = Boolean(session.crawlAllCourses);
+    crawlAllCourses.disabled = true;
+    crawlAllCoursesRow.classList.add("disabled");
   } else {
     title.textContent = "Not capturing";
     detail.textContent = session.startedAt
@@ -62,6 +97,10 @@ async function renderSession() {
       : "Press Start, then open your child's Classroom and Genesis pages.";
     toggle.textContent = "Start capture";
     toggle.className = "primary";
+    followLinks.disabled = false;
+    followLinksRow.classList.remove("disabled");
+    crawlAllCourses.disabled = false;
+    crawlAllCoursesRow.classList.remove("disabled");
   }
   save.hidden = session.active || !(session.pages || []).length;
 }
@@ -233,7 +272,13 @@ async function renderCaptures() {
 }
 
 document.getElementById("sessionToggle").addEventListener("click", async () => {
-  await chrome.runtime.sendMessage({ type: currentSession.active ? "END_SESSION" : "START_SESSION" });
+  if (currentSession.active) {
+    await chrome.runtime.sendMessage({ type: "END_SESSION" });
+  } else {
+    const followAssignmentLinks = document.getElementById("followLinks").checked;
+    const crawlAllCourses = document.getElementById("crawlAllCourses").checked;
+    await chrome.runtime.sendMessage({ type: "START_SESSION", followAssignmentLinks, crawlAllCourses });
+  }
   renderSession();
 });
 
@@ -291,6 +336,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 renderSites();
 renderTabNote();
+initOptInCheckboxes();
 renderSession();
 renderTemplates();
 renderReplay();

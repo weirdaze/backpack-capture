@@ -1,0 +1,60 @@
+<!--
+  Synthetic fixture for extractDetailLinks (src/reducer.js). Mixes real
+  anchors Classroom renders for some work items with the JS-driven,
+  href-less markup it uses for others (confirmed real against a full
+  export — see docs/DESIGN.md) so the extraction's "only ever follow a
+  real anchor" rule has something to actually prove.
+-->
+<!doctype html>
+<html>
+  <head>
+    <title>Classwork - 4th Period English</title>
+  </head>
+  <body>
+    <main>
+      <div>
+        <a
+          href="https://classroom.google.com/u/0/c/AAA/a/BBB/details"
+          aria-label="Assignment: Chapter 4 Reading Response, due Tomorrow"
+          role="link"
+        ></a>
+      </div>
+      <div>
+        <a
+          href="/u/0/c/AAA/m/DDD/details"
+          aria-label='Material: "How To Craft A Thesis Statement"'
+          role="link"
+        ></a>
+      </div>
+      <!-- same assignment surfaced a second time (e.g. stream + to-do widget) - must be deduped -->
+      <div>
+        <a
+          href="https://classroom.google.com/u/0/c/AAA/a/BBB/details"
+          aria-label="Assignment: Chapter 4 Reading Response, due Tomorrow"
+          role="link"
+        ></a>
+      </div>
+      <!-- JS-driven, no real anchor - must be left out entirely, never guessed at -->
+      <div role="link" aria-label="Assignment: Using Book Covers To Make Inferences"></div>
+      <!-- a real anchor, but not a details page - must be left out -->
+      <a href="/u/0/c/AAA" aria-label="Assignment: Not a details link">Course home</a>
+      <!-- a real details-page anchor whose label doesn't follow the
+           "Assignment:"/"Material:" convention - unconfirmed for any real
+           capture in hand, but cheap to guard against: must still be
+           followed, kind read off the URL's own /a/ path segment, not the
+           label -->
+      <a href="/u/0/c/AAA/a/EEE/details" aria-label="Part One of F451 + Study Guide (DUE)" role="button"></a>
+    </main>
+    <!-- course nav / homepage tiles - confirmed real: role="menuitem" links
+         to a bare /c/<classId>, both in the persistent class switcher and
+         the homepage's own course list -->
+    <nav>
+      <a aria-label="GEOM A Per A 2026-27 210-1" role="menuitem" href="/u/0/c/ODcyNDkxNDc4MTk4">Geometry</a>
+      <a aria-label="ENG 2A Block B (26-27) 121-1" role="menuitem" href="/u/0/c/ODc2NDQ0NzExNTM3">English</a>
+      <!-- same course surfaced twice (nav + homepage tile) - must be deduped -->
+      <a aria-label="ENG 2A Block B (26-27)" href="/u/0/c/ODc2NDQ0NzExNTM3">English</a>
+      <!-- the archived-classes link itself - must never be mistaken for a course -->
+      <a aria-label="Archived classes" role="menuitem" href="/u/0/h/archived">Archived classes</a>
+    </nav>
+  </body>
+</html>
