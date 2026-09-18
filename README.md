@@ -178,6 +178,18 @@ address, whether that's a real link Classroom rendered or (for a course's
 Classwork tab, and for an item with no real link on it) one built from an
 id in a way verified against a real capture, not guessed at.
 
+It also skips anything left over from before this school year — a class
+like a student-government feed can carry posts going back years, and
+walking those too would just cost time for content that's no longer
+relevant. An item's own due date (or, for one with no due date at all, its
+posting date) decides this; one with no usable date either way is kept
+rather than guessed at.
+
+While a walk is running, the popup shows two progress bars: which class
+it's on out of how many, and how many pages it's captured in total. The
+total keeps growing as each class's own items are discovered, so it's a
+live count, not a fixed target known from the start.
+
 ### Templates — do the same round again another day
 
 A capture session is usually the same little tour every time: each class's

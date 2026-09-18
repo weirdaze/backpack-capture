@@ -4,6 +4,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { JSDOM } = require("jsdom");
 
+// Pinned so tests using it never depend on which real day they happen to run.
+const SEPT_18_2026 = new Date(2026, 8, 18);
+
 function loadFixture(name, url) {
   const html = fs.readFileSync(path.join(__dirname, "fixtures", name), "utf8");
   const dom = new JSDOM(html, { url });
@@ -204,7 +207,7 @@ test("extractCourseLinks builds the Classwork URL under the page's own account i
 test("reconstructWorkItemLinks builds a details link for a button-only work item", () => {
   const url = "https://classroom.google.com/u/0/w/ODcyNDkxNDc4MTk4/t/all";
   const dom = loadFixture("classroom-classwork-buttons.html", url);
-  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url, now: SEPT_18_2026 });
 
   const assignment = reduced.detailLinks.find((l) => l.href.includes("ODg0ODkwMTc5OTMz"));
   assert.deepEqual(assignment, {
@@ -212,21 +215,40 @@ test("reconstructWorkItemLinks builds a details link for a button-only work item
     kind: "assignment",
     title: '"Why Novels Have First Pages"', // the trailing " Assignment" is stripped, and it's not the "options for ..." tooltip label
     due: "Today",
+    created: null,
   });
 
-  const material = reduced.detailLinks.find((l) => l.href.includes("/m/"));
-  assert.equal(material.kind, "material");
+  const material = reduced.detailLinks.find((l) => l.href.includes("/m/") && l.kind === "material");
   assert.equal(material.title, "Syllabus");
 });
 
 test("reconstructWorkItemLinks never duplicates an item that already has a real anchor", () => {
   const url = "https://classroom.google.com/u/0/w/ODcyNDkxNDc4MTk4/t/all";
   const dom = loadFixture("classroom-classwork-buttons.html", url);
-  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url, now: SEPT_18_2026 });
 
   const matches = reduced.detailLinks.filter((l) => l.href.endsWith("/a/ODg1NDczNzA5Mjcz/details"));
   assert.equal(matches.length, 1); // the real anchor's own due date survives, not overwritten
   assert.equal(matches[0].due, "Friday");
+});
+
+test("a leftover item from last school year is filtered out of detailLinks", () => {
+  const url = "https://classroom.google.com/u/0/w/ODcyNDkxNDc4MTk4/t/all";
+  const dom = loadFixture("classroom-classwork-buttons.html", url);
+  const inSeptember = dom.window.BackpackReducer.reduce(dom.window.document.body, { url, now: SEPT_18_2026 });
+  assert.equal(
+    inSeptember.detailLinks.some((l) => l.href.includes("ODYzNjc0OTA2Nzk0")),
+    false
+  );
+
+  // The same item, captured back when it was actually posted, must not be
+  // filtered - this only excludes genuinely stale items, not everything
+  // with a bare month/day.
+  const backInMay = dom.window.BackpackReducer.reduce(dom.window.document.body, { url, now: new Date(2026, 4, 10) });
+  assert.equal(
+    backInMay.detailLinks.some((l) => l.href.includes("ODYzNjc0OTA2Nzk0")),
+    true
+  );
 });
 
 test("reconstructWorkItemLinks stays empty on a page with no class in the URL", () => {
@@ -252,7 +274,7 @@ test("reconstructWorkItemLinks never fires while a stale cross-class view is sti
 test("reconstructWorkItemLinks fires once the page's own view is present", () => {
   const url = "https://classroom.google.com/u/2/w/ODc2NDQ0NzExNTM3/t/all";
   const dom = loadFixture("classroom-stale-view.html", url);
-  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url, now: SEPT_18_2026 });
   assert.equal(reduced.viewReady, true);
   const link = reduced.detailLinks.find((l) => l.href.includes("ODc2NDQ0NzExNTM3"));
   assert.deepEqual(link, {
@@ -260,7 +282,39 @@ test("reconstructWorkItemLinks fires once the page's own view is present", () =>
     kind: "assignment",
     title: "Part One of F451 + Study Guide (DUE)",
     due: "Sep 23",
+    created: null,
   });
+});
+
+test("resolveNearestDate picks whichever year is fewest days from now", () => {
+  const R = global.window.BackpackReducer;
+  const now = new Date(2026, 8, 18); // September 18, 2026
+  // "May 11" is ~4 months in the past vs. ~8 months in the future - the
+  // past occurrence is nearer, and must win.
+  assert.deepEqual(R.resolveNearestDate("Due May 11, 7:30 AM", now), new Date(2026, 4, 11));
+  // "Jan 15" is ~4 months in the future vs. ~8 months in the past - the
+  // future occurrence is nearer.
+  assert.deepEqual(R.resolveNearestDate("Jan 15", now), new Date(2027, 0, 15));
+  assert.equal(R.resolveNearestDate("Due Tomorrow", now), null);
+  assert.equal(R.resolveNearestDate("", now), null);
+});
+
+test("isWithinCurrentSchoolYear excludes a leftover date from before school-year start", () => {
+  const R = global.window.BackpackReducer;
+  const now = new Date(2026, 8, 18); // September 18, 2026 - school year started August 1, 2026
+  assert.equal(R.isWithinCurrentSchoolYear("May 8", now), false); // resolves to May 2026, before Aug 1, 2026
+  assert.equal(R.isWithinCurrentSchoolYear("Jan 15", now), true); // resolves to Jan 2027, within this school year
+  assert.equal(R.isWithinCurrentSchoolYear("Today", now), true); // never resolved as a date at all
+  assert.equal(R.isWithinCurrentSchoolYear("Wednesday", now), true);
+  assert.equal(R.isWithinCurrentSchoolYear(null, now), true); // no signal - never filtered for lack of information
+  assert.equal(R.isWithinCurrentSchoolYear("blah blah", now), true); // unparseable - same default
+});
+
+test("schoolYearStart lands on August 1st of the correct year on both sides of the boundary", () => {
+  const R = global.window.BackpackReducer;
+  assert.deepEqual(R.schoolYearStart(new Date(2026, 8, 18)), new Date(2026, 7, 1)); // September -> this year
+  assert.deepEqual(R.schoolYearStart(new Date(2027, 3, 1)), new Date(2026, 7, 1)); // April -> still last August
+  assert.deepEqual(R.schoolYearStart(new Date(2026, 7, 15)), new Date(2026, 7, 1)); // August itself
 });
 
 test("parseWorkItemLabel strips quotes and the due-date suffix", () => {

@@ -178,6 +178,46 @@ async function renderReplay() {
   }
 }
 
+const CRAWL_PROGRESS_KEY = "backpack_crawl_progress";
+
+// Read directly from storage (background.js writes it there), same as the
+// opt-in checkbox prefs - there's nothing here a round-trip message would
+// add. Stays visible after a walk finishes, showing its final tally, until
+// the next one starts and resets it.
+async function renderCrawlProgress() {
+  const data = await chrome.storage.local.get(CRAWL_PROGRESS_KEY);
+  const progress = data[CRAWL_PROGRESS_KEY];
+  const section = document.getElementById("crawlProgress");
+  if (!progress) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+
+  document.getElementById("crawlProgressTitle").textContent = progress.active ? "Walking classes…" : "Walk finished";
+
+  const courseRow = document.getElementById("crawlCourseRow");
+  const isCourseWalk = progress.kind === "course";
+  courseRow.hidden = !isCourseWalk;
+  if (isCourseWalk) {
+    const courseBar = document.getElementById("crawlCourseBar");
+    courseBar.max = Math.max(progress.courseTotal, 1);
+    courseBar.value = progress.courseIndex;
+    document.getElementById("crawlCourseLabel").textContent = progress.currentCourseTitle
+      ? `Class ${progress.courseIndex} of ${progress.courseTotal}: ${progress.currentCourseTitle}`
+      : `Class ${progress.courseIndex} of ${progress.courseTotal}`;
+  }
+
+  const itemsDone = progress.itemsCaptured + progress.itemsSkipped;
+  const itemsBar = document.getElementById("crawlItemsBar");
+  itemsBar.max = Math.max(progress.itemsQueuedTotal, 1);
+  itemsBar.value = itemsDone;
+  const stillFinding = progress.active && progress.itemsQueuedTotal > itemsDone;
+  document.getElementById("crawlItemsLabel").textContent = `${pages(progress.itemsCaptured)} captured${
+    progress.itemsSkipped ? `, ${progress.itemsSkipped} skipped` : ""
+  }${stillFinding ? ` (${progress.itemsQueuedTotal} found so far)` : ""}`;
+}
+
 function renderSites() {
   const list = document.getElementById("siteList");
   list.innerHTML = "";
@@ -332,6 +372,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     renderReplay();
     renderTemplates();
   }
+  if (changes.backpack_crawl_progress) renderCrawlProgress();
 });
 
 renderSites();
@@ -340,4 +381,5 @@ initOptInCheckboxes();
 renderSession();
 renderTemplates();
 renderReplay();
+renderCrawlProgress();
 renderCaptures();

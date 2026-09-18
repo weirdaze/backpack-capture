@@ -12,6 +12,7 @@ const STORAGE_KEY = "backpack_captures";
 const SESSION_KEY = "backpack_session"; // also read by core-content.js
 const TEMPLATES_KEY = "backpack_templates"; // deliberately NOT cleared by CLEAR_CAPTURES
 const REPLAY_KEY = "backpack_replay";
+const CRAWL_PROGRESS_KEY = "backpack_crawl_progress"; // read directly by popup.js, same as the opt-in prefs
 const MAX_CAPTURES = 500; // simple cap so storage.local never grows unbounded
 const MAX_SESSION_PAGES = 300;
 const IDLE_SESSION = {
@@ -212,7 +213,7 @@ async function runReplay(template) {
 //    assignment/material links THAT page carries in right after it, so the
 //    whole course is finished before the crawl moves to the next one - a
 //    breadth-first walk of courses, depth-first within each one.
-const pageCrawls = new Map(); // tabId -> { queue, index, returnUrl, awaiting, timer, keepAlive, captured, skipped, coursesVisited }
+const pageCrawls = new Map(); // tabId -> { queue, index, returnUrl, awaiting, timer, keepAlive, captured, skipped, coursesVisited, itemsCaptured, itemsSkipped, currentCourseTitle }
 
 function clearCrawlTimers(crawl) {
   if (crawl.timer) clearTimeout(crawl.timer);
@@ -226,11 +227,41 @@ function crawlSummary(crawl) {
   return `Backpack: captured ${courses}${pages}${skipped}.`;
 }
 
+// Read directly by popup.js (chrome.storage.local.get), the same way it
+// already reads the opt-in checkbox prefs - no round-trip message needed
+// for something this simple. Only one crawl's progress is tracked at a
+// time even if, in principle, more than one tab could be crawling at
+// once; a rare enough case that last-write-wins is an acceptable
+// simplification rather than something worth a per-tab progress store.
+// `itemsQueuedTotal` deliberately grows over the course of a course-walk
+// crawl (each course's own items are only discovered once that course's
+// Classwork page is actually visited), so it's a live "how much have we
+// found so far," not a fixed target known from the start.
+function saveCrawlProgress(crawl) {
+  const itemSteps = crawl.queue.filter((s) => s.kind !== "course");
+  const courseStepsSoFar = crawl.queue.slice(0, crawl.index + 1).filter((s) => s.kind === "course").length;
+  const progress = {
+    active: !crawl.finished,
+    kind: crawl.queue.some((s) => s.kind === "course") ? "course" : "details",
+    courseIndex: courseStepsSoFar,
+    courseTotal: crawl.queue.filter((s) => s.kind === "course").length,
+    currentCourseTitle: crawl.currentCourseTitle || null,
+    itemsCaptured: crawl.itemsCaptured,
+    itemsSkipped: crawl.itemsSkipped,
+    itemsQueuedTotal: itemSteps.length,
+    coursesVisited: crawl.coursesVisited,
+    updatedAt: new Date().toISOString(),
+  };
+  return chrome.storage.local.set({ [CRAWL_PROGRESS_KEY]: progress });
+}
+
 async function finishCrawl(tabId) {
   const crawl = pageCrawls.get(tabId);
   if (!crawl) return;
   clearCrawlTimers(crawl);
   pageCrawls.delete(tabId);
+  crawl.finished = true;
+  await saveCrawlProgress(crawl); // leaves the final tally visible until the next crawl starts
   try {
     await chrome.tabs.update(tabId, { url: crawl.returnUrl });
   } catch (e) {
@@ -253,6 +284,8 @@ async function goToNextCrawlStep(tabId) {
   }
   const step = crawl.queue[crawl.index];
   crawl.awaiting = step.href;
+  if (step.kind === "course") crawl.currentCourseTitle = step.title || step.classId;
+  await saveCrawlProgress(crawl);
   try {
     await chrome.tabs.update(tabId, { url: step.href });
   } catch (e) {
@@ -311,6 +344,8 @@ async function advanceCrawlStep(tabId, result) {
         crawl.queue.splice(crawl.index + 1, 0, ...newSteps);
       }
     } else {
+      if (timedOut) crawl.itemsSkipped++;
+      else crawl.itemsCaptured++;
       const visited = new Set(session.visitedDetailLinks || []);
       visited.add(step.href);
       await saveSession({ ...session, visitedDetailLinks: [...visited] });
@@ -319,6 +354,7 @@ async function advanceCrawlStep(tabId, result) {
 
   crawl.index++;
   crawl.awaiting = null;
+  await saveCrawlProgress(crawl);
   await goToNextCrawlStep(tabId);
 }
 
@@ -330,6 +366,10 @@ function startCrawl(tabId, returnUrl, queue, toastMessage) {
     captured: 0,
     skipped: 0,
     coursesVisited: 0,
+    itemsCaptured: 0,
+    itemsSkipped: 0,
+    currentCourseTitle: null,
+    finished: false,
     returnUrl,
     awaiting: null,
     timer: null,
@@ -339,6 +379,7 @@ function startCrawl(tabId, returnUrl, queue, toastMessage) {
   // MV3 service workers can be shut down while idle; a crawl spends most of
   // its time waiting on page loads, same as replay.
   crawl.keepAlive = setInterval(() => chrome.runtime.getPlatformInfo(), 20000);
+  saveCrawlProgress(crawl);
   chrome.tabs.sendMessage(tabId, { type: "SHOW_REPLAY_TOAST", message: toastMessage }).catch(() => {
     // no content script yet on this tab - the navigation itself still proceeds
   });
@@ -361,7 +402,7 @@ function startCourseCrawl(tabId, session, returnUrl, courseLinks) {
   const queue = [];
   for (const link of courseLinks) {
     if (visited.has(link.classId)) continue;
-    queue.push({ kind: "course", href: link.classworkHref, classId: link.classId });
+    queue.push({ kind: "course", href: link.classworkHref, classId: link.classId, title: link.title });
     if (queue.length >= MAX_COURSES_PER_CRAWL) break;
   }
   if (!queue.length) return;
@@ -380,6 +421,8 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   if (!crawl) return;
   clearCrawlTimers(crawl);
   pageCrawls.delete(tabId);
+  crawl.finished = true;
+  saveCrawlProgress(crawl); // otherwise the popup would show a stuck "active" walk forever
 });
 
 // ---- messages ---------------------------------------------------------------

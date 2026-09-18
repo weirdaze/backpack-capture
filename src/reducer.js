@@ -224,6 +224,16 @@
         if (!out.kind && (text === "Assignment" || text === "Material")) out.kind = text.toLowerCase();
         const dueMatch = /^Due\s+(.+)$/.exec(text);
         if (dueMatch && !out.due) out.due = dueMatch[1].trim();
+        // "Created" and its date are two separate, adjacent text nodes
+        // (confirmed real: one node reading exactly "Created", the next
+        // reading "May 8") - used as a fallback school-year signal for
+        // items with no due date at all (materials, announcements).
+        if (out._expectCreatedNext && !out.created) {
+          out.created = text;
+          out._expectCreatedNext = false;
+        } else if (text === "Created") {
+          out._expectCreatedNext = true;
+        }
         return;
       }
       const attrs = node.attrs || {};
@@ -242,7 +252,7 @@
       const itemId = attrs["data-stream-item-id"];
       if (itemId && /^\d+$/.test(itemId) && !seenIds.has(itemId)) {
         seenIds.add(itemId);
-        const out = { selfId: itemId, kind: null, title: null, due: null };
+        const out = { selfId: itemId, kind: null, title: null, due: null, created: null };
         collectSignals(node, out);
         if (out.kind) {
           links.push({
@@ -252,6 +262,7 @@
             kind: out.kind,
             title: out.title,
             due: out.due,
+            created: out.created,
           });
         }
       }
@@ -315,8 +326,66 @@
     return links;
   }
 
+  const MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+
+  // A bare "Month Day" (no year - confirmed real: Classroom never shows one
+  // for either a due date or a "Created" date) is genuinely ambiguous on
+  // its own - "May 11" seen in September could mean the May that already
+  // happened or the one 8 months off. Resolved as whichever actual
+  // calendar date (last year's, this year's, or next year's occurrence) is
+  // fewest days from `now` - the standard way to disambiguate a bare
+  // recurring date, and it happens to land correctly on both sides of a
+  // school-year boundary: a date a few months in the past resolves to the
+  // past, one a few months out resolves to the future, and either way
+  // never needs the exact school-year start date to get right.
+  function resolveNearestDate(text, now) {
+    const m = /\b([A-Z][a-z]{2})[a-z]*\.?\s+(\d{1,2})\b/.exec(text || "");
+    if (!m || !(m[1] in MONTHS)) return null;
+    const month = MONTHS[m[1]];
+    const day = Number(m[2]);
+    const candidates = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map(
+      (year) => new Date(year, month, day)
+    );
+    candidates.sort((a, b) => Math.abs(a - now) - Math.abs(b - now));
+    return candidates[0];
+  }
+
+  // School years run roughly August-to-July; this is a generic default
+  // (not read off anything Genesis/Classroom exposes - unconfirmed whether
+  // either ever states an exact start date) deliberately used only as a
+  // boundary, never to resolve which year a bare date means (that's
+  // resolveNearestDate's job, and it doesn't need this at all).
+  function schoolYearStart(now) {
+    const year = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+    return new Date(year, 7, 1);
+  }
+
+  // "Today"/"Tomorrow"/a bare weekday name are always near-term - Classroom
+  // only uses them close to now, so they never need date resolution at
+  // all. A date this can't parse (or that isn't unambiguously old) is kept
+  // rather than filtered - never hide something for lack of information.
+  function isWithinCurrentSchoolYear(text, now) {
+    if (!text) return true;
+    if (/^(Today|Tomorrow|Yesterday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/i.test(text.trim())) {
+      return true;
+    }
+    const resolved = resolveNearestDate(text, now);
+    if (!resolved) return true;
+    return resolved >= schoolYearStart(now);
+  }
+
+  // Prefers a due date when there is one (authoritative when present);
+  // falls back to the item's own Created date for materials/announcements,
+  // which never have a due date at all.
+  function isRecentEnough(link, now) {
+    if (link.due) return isWithinCurrentSchoolYear(link.due, now);
+    if (link.created) return isWithinCurrentSchoolYear(link.created, now);
+    return true;
+  }
+
   function reduce(rootElement, options) {
     const opts = options || {};
+    const now = opts.now || new Date();
     const views = otherClassViews(rootElement, opts.url || "");
     const base = core.reduce(rootElement, { skipElements: views.others });
 
@@ -326,7 +395,9 @@
     const realLinks = extractDetailLinks(base.tree, opts.url || "");
     const reconstructedLinks = reconstructWorkItemLinks(base.tree, opts.url || "", views.ready);
     const seenHrefs = new Set(realLinks.map((l) => l.href));
-    const detailLinks = realLinks.concat(reconstructedLinks.filter((l) => !seenHrefs.has(l.href)));
+    const detailLinks = realLinks
+      .concat(reconstructedLinks.filter((l) => !seenHrefs.has(l.href)))
+      .filter((l) => isRecentEnough(l, now));
 
     return {
       ...base,
@@ -352,6 +423,9 @@
     extractDetailLinks,
     reconstructWorkItemLinks,
     extractCourseLinks,
+    resolveNearestDate,
+    schoolYearStart,
+    isWithinCurrentSchoolYear,
     reduce,
   };
 })(typeof window !== "undefined" ? window : globalThis);

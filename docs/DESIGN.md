@@ -456,6 +456,63 @@ caused it in the first place. `DETAIL_STEP_TIMEOUT_MS`/
 comfortably cover two full reload cycles rather than skipping a page
 mid-recovery.
 
+## Filtering out items from before this school year (added in 0.7.0)
+
+A real "Class of 2029" capture (a student-government-style class that
+never gets archived, so it accumulates posts across multiple school
+years) turned up dozens of items from 2025 and from May 2026 - the
+previous school year - mixed in with current ones. Walking those every
+time is pure wasted time, and the request was explicit: only bring in
+items from this school year.
+
+**Why "nearest occurrence," not a fixed year.** Classroom never shows a
+year on either a due date or a "Created" date - confirmed real for both:
+`Due May 11, 7:30 AM` and `Created` / `May 8` (two separate, adjacent text
+nodes) are exactly what a real capture showed for the same May 2026 item.
+A bare "May 11" seen from September is genuinely ambiguous on its own - it
+could mean the May that already happened or the one 8 months from now -
+and there's no exact school-year-start date available from either
+Classroom or Genesis to resolve it against directly. `resolveNearestDate`
+resolves it the standard way a bare recurring date gets disambiguated:
+whichever of last year's, this year's, or next year's occurrence of that
+month/day is fewest calendar days from now. This happens to fall on the
+correct side of a school-year boundary without needing to know the exact
+boundary at all - a date a few months in the past resolves to the past, one
+a few months out resolves to the future, and either interpretation is only
+ever compared against a generic `schoolYearStart` (August 1) to decide
+in/out of scope.
+
+**Where it applies.** `isRecentEnough` (in `reduce()`) filters the combined
+`detailLinks` - real anchors and reconstructed links alike - using each
+item's own `due` date, falling back to `created` only when there's no due
+date at all (true for materials and announcement-style posts, which is
+most of what a class like this one carries). An item with neither is kept,
+never filtered for lack of information, the same conservative default used
+throughout this file. This only changes what the crawl chooses to *visit*
+- it doesn't touch what's already in a captured page's own reduced text.
+
+## Live progress while a walk runs (added in 0.7.0)
+
+A course-walk crawl can run for many minutes across dozens of classes and
+hundreds of items with no visible indication of how far along it is beyond
+watching the tab navigate. `background.js`'s `saveCrawlProgress` writes a
+live snapshot to `backpack_crawl_progress` (`chrome.storage.local`) on
+every step - which class it's on out of how many, and how many items have
+been captured in total - and `popup.js` reads it directly (the same way it
+already reads the opt-in checkbox prefs, no round-trip message needed) and
+renders two `<progress>` bars, refreshed live via `chrome.storage.onChanged`
+the same way captures, session state, and replay progress already are.
+
+The item total is deliberately a moving target, not a fixed one: a
+course's own items are only discovered once its Classwork page is actually
+visited (see "One engine, two ways in" above), so `itemsQueuedTotal` grows
+over the course of a walk rather than being knowable up front. Only one
+crawl's progress is tracked at a time - a rare concurrent-tab case would
+mean last-write-wins, an acceptable simplification rather than a per-tab
+progress store for something this cosmetic. The final tally stays visible
+after a walk finishes (or the tab is closed mid-walk) until the next one
+starts and resets it, the same way replay's own finished state persists.
+
 ## Goal: resolve "what class is my child in right now" (not built yet)
 
 The data needed for this already splits across pieces captured today, plus
