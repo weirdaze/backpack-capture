@@ -653,6 +653,52 @@ automatic, still nothing on a schedule, still a button press every time,
 and **Export capture** stays available as an unconditional local copy
 regardless of whether anyone ever logs in to schoolz at all.
 
+## Google sign-in for schoolz (added in 0.7.4)
+
+Email/password worked but asked for a password to be typed into a popup
+every time a session (and its refresh token) eventually expired - a
+convenience gap, given this is a browser extension and Google is already
+signed in. Added `chrome.identity.launchWebAuthFlow` alongside the
+existing password flow, rather than replacing it - schoolz's own Supabase
+project already has Google configured as an auth provider (its own web
+frontend already offers Google SSO), so this needed nothing new on that
+side beyond one config entry (below).
+
+**Why a fixed `manifest.json` "key", specifically for this.**
+`chrome.identity.getRedirectURL()` always resolves to
+`https://<this extension's own id>.chromiumapp.org/` - and that exact URL
+has to be pre-registered in Supabase's redirect-URL allowlist for the
+flow to complete at all. An unpacked extension's id is normally derived
+from the absolute install path, which differs across machines and even
+across re-clones of the same repo - meaning every install would need its
+own allowlist entry, indefinitely. Pinning `manifest.json`'s `key` field
+(the RSA **public** key half of a keypair generated solely for this - not
+a secret, the same way a TLS certificate or an SSH public key isn't; the
+private half was discarded immediately since nothing here ever signs a
+`.crx`) fixes the id - and therefore the redirect URL - to one value
+regardless of where or how many times this is loaded unpacked. The
+resulting id/URL are recorded in this repo's own PR/commit history rather
+than repeated here, since they're derived facts anyone can recompute from
+the committed public key, not configuration to keep in sync by hand.
+
+**The one manual step this can't do for itself.** Supabase's OAuth
+"Redirect URLs" allowlist lives in that project's own dashboard
+(Authentication -> URL Configuration), which this codebase has no
+credentials for and no business holding - unlike the API/Auth calls above,
+this genuinely requires a person with schoolz-admin access to add the
+extension's redirect URL there once. Nothing on the Google Cloud Console
+side needs to change: Google only ever redirects back to Supabase's own
+fixed callback (already configured, since Google SSO already works for
+schoolz's web app), and it's Supabase's *next* redirect - to whichever
+`redirect_to` the flow requested - that has to be on the allowlist.
+
+**Token handling is otherwise identical** to the password flow: the
+tokens Supabase's callback hands back in the redirect URL's fragment
+(`access_token`, `refresh_token`, `expires_in`) populate the exact same
+`backpack_schoolz_auth` record, refreshed the exact same way, published
+against the exact same endpoint - `schoolzLoginWithGoogle` only differs in
+how it *obtains* that first token, not in what happens after.
+
 ## Goal: resolve "what class is my child in right now" (not built yet)
 
 The data needed for this already splits across pieces captured today, plus

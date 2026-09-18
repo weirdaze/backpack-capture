@@ -555,6 +555,54 @@ async function schoolzLogin(email, password) {
   return { ok: true };
 }
 
+// Google sign-in, the way an extension does it: chrome.identity's own
+// flow rather than a bundled Google/Supabase JS SDK. getRedirectURL()
+// always returns https://<this extension's own id>.chromiumapp.org/ - the
+// manifest's "key" field (see manifest.json) is what makes that id the
+// same on every machine this is loaded unpacked on, rather than a
+// different one per install path, since that exact URL has to be
+// registered as an allowed redirect in schoolz's Supabase project ahead of
+// time (Authentication -> URL Configuration -> Redirect URLs) for this to
+// work at all - a one-time setup step on schoolz's side, not something
+// this extension can do for itself.
+async function schoolzLoginWithGoogle() {
+  const redirectUrl = chrome.identity.getRedirectURL();
+  const authorizeUrl = `${SCHOOLZ_SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(
+    redirectUrl
+  )}`;
+
+  let resultUrl;
+  try {
+    resultUrl = await chrome.identity.launchWebAuthFlow({ url: authorizeUrl, interactive: true });
+  } catch (e) {
+    // The person closed the Google sign-in window, or it's not registered
+    // as an allowed redirect yet - either way, nothing to recover from here.
+    return { ok: false, error: "Google sign-in was cancelled or isn't set up yet" };
+  }
+
+  // Supabase's own implicit-grant callback puts the tokens in the URL
+  // fragment, not a query string.
+  const fragment = new URL(resultUrl).hash.replace(/^#/, "");
+  const params = new URLSearchParams(fragment);
+  const accessToken = params.get("access_token");
+  if (!accessToken) {
+    return { ok: false, error: params.get("error_description") || "Google sign-in failed" };
+  }
+
+  const userResponse = await fetch(`${SCHOOLZ_SUPABASE_URL}/auth/v1/user`, {
+    headers: { Authorization: `Bearer ${accessToken}`, apikey: SCHOOLZ_SUPABASE_PUBLISHABLE_KEY },
+  });
+  const userJson = await userResponse.json().catch(() => ({}));
+
+  await saveSchoolzAuth({
+    access_token: accessToken,
+    refresh_token: params.get("refresh_token"),
+    expires_at: Date.now() + (Number(params.get("expires_in")) || 3600) * 1000,
+    email: userJson.email || "Google account",
+  });
+  return { ok: true };
+}
+
 async function schoolzLogout() {
   await chrome.storage.local.remove(SCHOOLZ_AUTH_KEY);
 }
@@ -856,6 +904,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.type === "SCHOOLZ_LOGIN") {
     (async () => {
       sendResponse(await schoolzLogin(message.email, message.password));
+    })();
+    return true;
+  }
+
+  if (message && message.type === "SCHOOLZ_LOGIN_GOOGLE") {
+    (async () => {
+      sendResponse(await schoolzLoginWithGoogle());
     })();
     return true;
   }

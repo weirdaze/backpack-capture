@@ -248,10 +248,12 @@ up in schoolz's kids view without you having to import the export file by
 hand.
 
 1. Open the popup and find **Publish to schoolz** below the main buttons.
-2. The first time, enter your schoolz email and password and press
-   **Log in** — this is the same login schoolz's own website uses; the
-   extension never sees or stores your password itself, only the session
-   token schoolz's login hands back.
+2. The first time, either press **Continue with Google** (opens Google's own
+   sign-in in a separate window — this is Chrome's own `chrome.identity`
+   flow, the extension never sees your Google password) or enter your
+   schoolz email and password and press **Log in**. Either way, the
+   extension only ever stores the session token schoolz's login hands back,
+   never your password.
 3. Once logged in, pick which child from a dropdown of the students on
    your schoolz account, then press **Publish captures**. Every capture
    currently saved in this extension is sent; schoolz's own import already
