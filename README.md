@@ -145,12 +145,14 @@ to, captures that page too, then returns to where it was. It's on-screen
 the whole time — the tab visibly navigates away and back, with a toast
 naming how many pages it's about to open — never a background fetch.
 
-This only follows a **real link Classroom itself rendered** on the page —
-never one reconstructed from Google's internal ids — so an item Classroom
-shows as a plain button with no link underneath it is simply left out
-rather than guessed at. It won't re-open something already captured this
-session, and it caps how many pages it'll open per Classwork page visited so
-one very full class can't turn a quick check into an open-ended crawl.
+This prefers a **real link Classroom itself rendered** on the page. Where
+one doesn't exist — confirmed the norm on a Classwork page, where every item
+tends to render as a plain button, not a link — its details address is
+instead built from its own id, using an encoding verified exact against a
+real capture (see `docs/DESIGN.md`), rather than left out. It won't re-open
+something already captured this session, and it caps how many pages it'll
+open per Classwork page visited so one very full class can't turn a quick
+check into an open-ended crawl.
 
 ### Walking every class from the homepage
 
@@ -170,9 +172,11 @@ times 20 items each, which can take a while and means the tab is out of
 your hands for a stretch — so it's capped, off by default, and only ever
 triggered by actually landing on the homepage. It only ever walks classes
 the homepage lists as active; Classroom keeps archived classes behind a
-separate link this never follows. Like everything else here, it drives the
-tab to addresses Classroom itself rendered — never a click, never a
-reconstructed URL.
+separate link this never follows. Like everything else here, it never
+clicks anything on the site's side — it only ever drives the tab to an
+address, whether that's a real link Classroom rendered or (for a course's
+Classwork tab, and for an item with no real link on it) one built from an
+id in a way verified against a real capture, not guessed at.
 
 ### Templates — do the same round again another day
 

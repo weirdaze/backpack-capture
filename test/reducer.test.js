@@ -188,6 +188,68 @@ test("extractCourseLinks builds the Classwork URL under the page's own account i
   assert.equal(geometry.classworkHref, "https://classroom.google.com/u/2/w/ODcyNDkxNDc4MTk4/t/all");
 });
 
+test("reconstructWorkItemLinks builds a details link for a button-only work item", () => {
+  const url = "https://classroom.google.com/u/0/w/ODcyNDkxNDc4MTk4/t/all";
+  const dom = loadFixture("classroom-classwork-buttons.html", url);
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+
+  const assignment = reduced.detailLinks.find((l) => l.href.includes("ODg0ODkwMTc5OTMz"));
+  assert.deepEqual(assignment, {
+    href: "https://classroom.google.com/u/0/c/ODcyNDkxNDc4MTk4/a/ODg0ODkwMTc5OTMz/details",
+    kind: "assignment",
+    title: '"Why Novels Have First Pages"', // the trailing " Assignment" is stripped, and it's not the "options for ..." tooltip label
+    due: "Today",
+  });
+
+  const material = reduced.detailLinks.find((l) => l.href.includes("/m/"));
+  assert.equal(material.kind, "material");
+  assert.equal(material.title, "Syllabus");
+});
+
+test("reconstructWorkItemLinks never duplicates an item that already has a real anchor", () => {
+  const url = "https://classroom.google.com/u/0/w/ODcyNDkxNDc4MTk4/t/all";
+  const dom = loadFixture("classroom-classwork-buttons.html", url);
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+
+  const matches = reduced.detailLinks.filter((l) => l.href.endsWith("/a/ODg1NDczNzA5Mjcz/details"));
+  assert.equal(matches.length, 1); // the real anchor's own due date survives, not overwritten
+  assert.equal(matches[0].due, "Friday");
+});
+
+test("reconstructWorkItemLinks stays empty on a page with no class in the URL", () => {
+  const url = "https://classroom.google.com/u/0/h/st";
+  const dom = loadFixture("classroom-classwork-buttons.html", url);
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+  // The button-only items (no real anchor) can't be reconstructed with no
+  // class id to build from; the one item with a real anchor is unaffected,
+  // since extractDetailLinks never depended on the page's own class id.
+  assert.equal(reduced.detailLinks.length, 1);
+  assert.equal(reduced.detailLinks[0].title, "Real Anchor Item");
+});
+
+test("reconstructWorkItemLinks never fires while a stale cross-class view is still detected", () => {
+  const url = "https://classroom.google.com/u/2/w/ODcyNDkxNDc4MTk4/t/all";
+  const dom = loadFixture("classroom-stale-view.html", url);
+  dom.window.document.querySelector('[data-view-id="ucc-97"]').remove(); // only the other class's view is left
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+  assert.equal(reduced.viewReady, false);
+  assert.deepEqual(reduced.detailLinks, []);
+});
+
+test("reconstructWorkItemLinks fires once the page's own view is present", () => {
+  const url = "https://classroom.google.com/u/2/w/ODc2NDQ0NzExNTM3/t/all";
+  const dom = loadFixture("classroom-stale-view.html", url);
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+  assert.equal(reduced.viewReady, true);
+  const link = reduced.detailLinks.find((l) => l.href.includes("ODc2NDQ0NzExNTM3"));
+  assert.deepEqual(link, {
+    href: "https://classroom.google.com/u/2/c/ODc2NDQ0NzExNTM3/a/ODg0ODg5OTM4OTg1/details",
+    kind: "assignment",
+    title: "Part One of F451 + Study Guide (DUE)",
+    due: "Sep 23",
+  });
+});
+
 test("parseWorkItemLabel strips quotes and the due-date suffix", () => {
   const R = global.window.BackpackReducer;
   assert.deepEqual(R.parseWorkItemLabel('Assignment: "Why Novels Have First Pages" Assignment, due Tomorrow'), {

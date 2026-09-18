@@ -303,7 +303,45 @@ details page reached from a different rendering could plausibly carry a
 label that doesn't match the "Assignment:"/"Material:" convention at all -
 unconfirmed for any real capture in hand, but cheap to guard against, so the
 code doesn't require it. A fixture covers both the confirmed-real shape and
-this defensive one (`test/fixtures/classroom-detail-links.html`).
+this defensive one (`test/fixtures/classroom-detail-links.html`). *Revisited
+in 0.6.0 below* - "no real anchor" turned out to be the norm for Classwork
+specifically, not the exception.
+
+**Reconstructing a details link when no real anchor exists (added in
+0.6.0).** A full account walk (0.5.1) turned up something the sample used to
+build extractDetailLinks didn't show: on every single Classwork-tab capture
+examined, every work item rendered as a JS-driven `role="button"` with no
+`href` at all - title, due date, and type ("Assignment"/"Material") all
+present as plain text and attributes, just no real link anywhere.
+Extraction alone left the whole feature unable to do the one thing it was
+built for when driven from Classwork.
+
+`src/reducer.js#reconstructWorkItemLinks` fills that gap, but only for an
+item extraction found no real link for (a real anchor always wins). It
+locates each item by its `data-stream-item-id` and builds
+`/u/<n>/c/<classId>/(a|m)/<streamItemId as base64url>/details` directly -
+the one other deliberate exception to "never reconstruct" in this file,
+alongside `classworkHrefFor`. What makes it defensible this time, unlike
+the case argued against above: the encoding isn't a guess about Google's
+conventions, it's verified exact - a real details URL's own item-id
+segment, base64-decoded, produced the identical numeric string as the
+`data-stream-item-id` sitting next to that exact assignment's title. `kind`
+comes from a literal, visible "Assignment"/"Material" text node in the
+item's own markup (never the `aria-label`, whose wording is unconfirmed
+here), and the "Assignment options for ..."/"Material options for ..."
+tooltip-trigger label sitting in the same subtree is explicitly excluded so
+it's never mistaken for the item's own title.
+
+The weaker link is the class id: a real anchor's `href` always names its
+own class regardless of which page it's found on, but a reconstructed link
+instead trusts that the item truly belongs to the page it was captured on -
+exactly the assumption the Classwork stale-view leak noted above (a
+capture with a few other classes' leftover items) has already shown can be
+wrong. So reconstruction only runs when `otherClassViews` reports `ready`
+for the page as a whole; it's a coarser guard than per-item verification
+would be, since that same leak proved items can slip through without
+tripping it, but it's the best signal already available without inventing
+a new one, and it never overrides whatever extraction already found.
 
 **Why Classwork, not Stream, for finding a class's assignments.**
 `src/reducer.js#extractCourseLinks` finds a class's own link the same way -
