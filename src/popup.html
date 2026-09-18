@@ -42,6 +42,18 @@
       <button id="saveTemplate" hidden>Save last session as a template</button>
     </section>
 
+    <section id="crawlProgress" class="crawl-progress" hidden>
+      <strong id="crawlProgressTitle">Walking classes…</strong>
+      <div id="crawlCourseRow" class="crawl-progress-row">
+        <span id="crawlCourseLabel" class="muted"></span>
+        <progress id="crawlCourseBar" max="1" value="0"></progress>
+      </div>
+      <div class="crawl-progress-row">
+        <span id="crawlItemsLabel" class="muted"></span>
+        <progress id="crawlItemsBar" max="1" value="0"></progress>
+      </div>
+    </section>
+
     <section class="templates" id="templatesSection" hidden>
       <h2>Templates</h2>
       <ul id="templateList"></ul>
