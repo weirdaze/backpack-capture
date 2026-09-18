@@ -167,7 +167,7 @@
         await waitForSettle();
 
         const notReady = (r) =>
-          !r.loginWall && (r.viewReady === false || (config.retryOnBadShape && !r.shapeOk));
+          !r.loginWall && (r.viewReady === false || r.needsRefresh || (config.retryOnBadShape && !r.shapeOk));
         let reduced = config.reduce(document.body, { url: location.href });
         if (config.retry) {
           const { maxAttempts, delayMs } = config.retry;
@@ -183,6 +183,30 @@
           // address - worse than capturing nothing.
           showToast("Backpack: this page was still loading, nothing captured. Scroll or tap Capture to try again.");
           return;
+        }
+
+        // Classroom's own SPA can get stuck mid-navigation and say so
+        // directly (reduced.needsRefresh - see reducer.js#looksStuckNeedingRefresh),
+        // confirmed real after a rapid run of automated page-to-page
+        // navigations. Waiting alone (the retries above) doesn't clear it,
+        // so force one real reload and let the fresh load capture it from
+        // scratch, same as the site's own banner says to do. Capped at one
+        // attempt per distinct page (sessionStorage, keyed by path) so a
+        // page that's genuinely stuck for good doesn't reload forever.
+        if (reduced.needsRefresh) {
+          const reloadKey = `__backpack_reload_attempted__${location.pathname}`;
+          let alreadyReloaded = false;
+          try {
+            alreadyReloaded = Boolean(sessionStorage.getItem(reloadKey));
+            if (!alreadyReloaded) sessionStorage.setItem(reloadKey, "1");
+          } catch (e) {
+            // sessionStorage unavailable (e.g. a locked-down profile) - fall
+            // through and capture whatever's there rather than looping
+          }
+          if (!alreadyReloaded) {
+            location.reload();
+            return;
+          }
         }
 
         const envelope = buildEnvelope(reduced);

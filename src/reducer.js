@@ -44,6 +44,18 @@
     return m ? Number(m[1]) : null;
   }
 
+  // Classroom's own SPA can get stuck mid-navigation and tell you so
+  // directly - confirmed real on a details page reached via a rapid
+  // automated crawl (many page-to-page navigations back to back): a
+  // "Refresh your browser to update this page" banner alongside a stuck
+  // 0%-progress loading bar. Waiting alone doesn't clear it, unlike an
+  // ordinary slow load - the caller uses this to force an actual reload
+  // rather than just retrying in place.
+  function looksStuckNeedingRefresh(reducedTree) {
+    const text = core.flattenToText(reducedTree);
+    return /Refresh your browser to update this page/i.test(text);
+  }
+
   // Classroom class ids are base64 of a numeric id ("ODcyNDkxNDc4MTk4" is
   // 872491478198), both in URLs (/c/<id>, /w/<id>/t/all) and in each class
   // view's root attribute: data-p='%.@."<id>"]...'.
@@ -321,6 +333,7 @@
       shapeOk: checkClassroomShape(base.tree),
       loginWall: looksLikeLoginWall(opts.url || "", base.tree),
       viewReady: views.ready,
+      needsRefresh: looksStuckNeedingRefresh(base.tree),
       detailLinks,
       courseLinks: extractCourseLinks(base.tree, opts.url || ""),
     };
@@ -331,6 +344,7 @@
     flattenToText: core.flattenToText,
     checkClassroomShape,
     looksLikeLoginWall,
+    looksStuckNeedingRefresh,
     accountIndexFromUrl,
     classIdFromUrl,
     otherClassViews,

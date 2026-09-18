@@ -411,9 +411,39 @@ capped batches rather than being stopped at 10 forever, and the walk is
 over once a homepage recapture finds nothing left to queue. Ending the
 session mid-crawl (`END_SESSION`) tears down any in-flight crawl
 immediately rather than waiting out its per-step timeout, and a course step
-gets a longer timeout (`COURSE_STEP_TIMEOUT_MS`, 30s) than a detail step
-(`DETAIL_STEP_TIMEOUT_MS`, 20s) since a Classwork page's own settle/retry
-loop can take longer.
+gets a longer timeout (`COURSE_STEP_TIMEOUT_MS`, 60s) than a detail step
+(`DETAIL_STEP_TIMEOUT_MS`, 45s) since a Classwork page's own settle/retry
+loop can take longer - both sized generously enough to also cover the
+stuck-page recovery described next, on the theory that a slower true skip
+beats a premature one.
+
+## Recovering from Classroom's own stuck-SPA state (added in 0.6.1)
+
+A full account walk (backpack-captures-2026-09-18T00-20-13.json, 165 pages
+in one run) turned up something none of the smaller runs had: one
+reconstructed details page came back with almost no content and a literal
+"Refresh your browser to update this page" banner, a stuck 0%-progress
+loading bar, and Classroom's own persistent "Page is loading…" status
+element still present. Checking the page's own `data-p` attribute showed
+the constructed address was exactly right - this wasn't a bad link, Google's
+own app had gotten stuck mid-navigation, almost certainly from the crawl
+driving it through far more page-to-page transitions per minute than a
+person browsing normally ever would.
+
+`src/reducer.js#looksStuckNeedingRefresh` looks for that exact banner text
+and surfaces it as `needsRefresh`, which `core-content.js`'s existing
+Classroom retry loop (see `notReady` in `createCaptureRunner`) now treats
+the same way it already treats a stale class view: keep retrying in place
+for a few seconds first. The difference is what happens if that still
+doesn't clear it - unlike an ordinary slow load, this state doesn't seem to
+resolve just by waiting, so the page forces one real `location.reload()`
+(exactly what the banner itself says to do) and lets the fresh load capture
+it from scratch. Capped at one attempt per distinct page
+(`sessionStorage`, keyed by `location.pathname`, since a details page's own
+id makes every page's key distinct) so a page that's genuinely broken for
+good - not just stuck - doesn't reload forever; it falls through to a
+normal capture attempt and gets labeled `adapter_may_be_broken` like any
+other capture that didn't pan out.
 
 ## Goal: resolve "what class is my child in right now" (not built yet)
 

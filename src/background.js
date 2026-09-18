@@ -26,8 +26,13 @@ const IDLE_SESSION = {
 };
 const PAGE_STEP_TIMEOUT_MS = 45000;
 const PROMPT_STEP_TIMEOUT_MS = 180000;
-const DETAIL_STEP_TIMEOUT_MS = 20000;
-const COURSE_STEP_TIMEOUT_MS = 30000; // a Classwork page's own retry loop can take longer to settle than a details page
+// Long enough to cover content.js's own stuck-page recovery (its normal
+// retry loop, then one full location.reload() and a fresh settle/retry
+// cycle after that) without the crawl giving up and skipping a page that's
+// still genuinely on its way to a good capture - a slower true skip beats a
+// premature one.
+const DETAIL_STEP_TIMEOUT_MS = 45000;
+const COURSE_STEP_TIMEOUT_MS = 60000; // a Classwork page's own retry loop can take longer to settle than a details page
 const MAX_DETAIL_LINKS_PER_VISIT = 20; // a class's full Classwork list can run to dozens of items
 const MAX_COURSES_PER_CRAWL = 10; // a full course load can run well past this - keep one homepage crawl to a sane size
 // A Classroom homepage/nav URL: /u/<n>/h, /u/<n>/h/st, ... but not the
