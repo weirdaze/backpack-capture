@@ -188,7 +188,11 @@ rather than guessed at.
 While a walk is running, the popup shows two progress bars: which class
 it's on out of how many, and how many pages it's captured in total. The
 total keeps growing as each class's own items are discovered, so it's a
-live count, not a fixed target known from the start.
+live count, not a fixed target known from the start. More than 10 active
+classes take more than one batch (each capped at 10, returning to the
+homepage in between) — the class count keeps climbing across batches
+rather than starting back over at "1," since it's really the same walk
+continuing.
 
 If several pages in a row come back broken — seen in practice after
 several large walks in one day, likely Classroom pushing back on the

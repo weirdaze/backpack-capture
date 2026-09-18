@@ -250,12 +250,14 @@ function crawlSummary(crawl) {
 // found so far," not a fixed target known from the start.
 function saveCrawlProgress(crawl) {
   const itemSteps = crawl.queue.filter((s) => s.kind !== "course");
-  const courseStepsSoFar = crawl.queue.slice(0, crawl.index + 1).filter((s) => s.kind === "course").length;
+  const courseStepsSoFarInBatch = crawl.queue.slice(0, crawl.index + 1).filter((s) => s.kind === "course").length;
   const progress = {
     active: !crawl.finished,
     kind: crawl.queue.some((s) => s.kind === "course") ? "course" : "details",
-    courseIndex: courseStepsSoFar,
-    courseTotal: crawl.queue.filter((s) => s.kind === "course").length,
+    // Cumulative across the whole walk, not just this batch - see the
+    // comment on totalKnownCourses/coursesVisitedBeforeBatch in startCrawl.
+    courseIndex: crawl.coursesVisitedBeforeBatch + courseStepsSoFarInBatch,
+    courseTotal: crawl.totalKnownCourses,
     currentCourseTitle: crawl.currentCourseTitle || null,
     itemsCaptured: crawl.itemsCaptured,
     itemsSkipped: crawl.itemsSkipped,
@@ -410,7 +412,7 @@ async function advanceCrawlStep(tabId, result) {
   await goToNextCrawlStep(tabId);
 }
 
-function startCrawl(tabId, returnUrl, queue, toastMessage) {
+function startCrawl(tabId, returnUrl, queue, toastMessage, progressContext) {
   if (pageCrawls.has(tabId) || !queue.length) return; // a crawl is already running in this tab
   pageCrawls.set(tabId, {
     queue,
@@ -423,6 +425,15 @@ function startCrawl(tabId, returnUrl, queue, toastMessage) {
     consecutiveBad: 0,
     currentCourseTitle: null,
     finished: false,
+    // Filled in only for a course walk, so progress reporting can show a
+    // cumulative "class N of <every active course>" across batches rather
+    // than resetting to "class 1 of <this batch's size>" once a homepage
+    // recapture starts a second batch for whatever's left over from the
+    // first (see startCourseCrawl and saveCrawlProgress) - confirmed real
+    // that without this, a walk that needed two batches looked like it had
+    // reset partway through, when it had actually just moved on.
+    totalKnownCourses: (progressContext && progressContext.totalKnownCourses) || 0,
+    coursesVisitedBeforeBatch: (progressContext && progressContext.coursesVisitedBeforeBatch) || 0,
     returnUrl,
     awaiting: null,
     timer: null,
@@ -463,7 +474,8 @@ function startCourseCrawl(tabId, session, returnUrl, courseLinks) {
     tabId,
     returnUrl,
     queue,
-    `Backpack: walking ${queue.length} class${queue.length === 1 ? "" : "es"} to capture their Classwork and assignments…`
+    `Backpack: walking ${queue.length} class${queue.length === 1 ? "" : "es"} to capture their Classwork and assignments…`,
+    { totalKnownCourses: courseLinks.length, coursesVisitedBeforeBatch: visited.size }
   );
 }
 
