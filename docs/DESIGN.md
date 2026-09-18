@@ -436,14 +436,25 @@ Classroom retry loop (see `notReady` in `createCaptureRunner`) now treats
 the same way it already treats a stale class view: keep retrying in place
 for a few seconds first. The difference is what happens if that still
 doesn't clear it - unlike an ordinary slow load, this state doesn't seem to
-resolve just by waiting, so the page forces one real `location.reload()`
+resolve just by waiting, so the page forces a real `location.reload()`
 (exactly what the banner itself says to do) and lets the fresh load capture
-it from scratch. Capped at one attempt per distinct page
-(`sessionStorage`, keyed by `location.pathname`, since a details page's own
-id makes every page's key distinct) so a page that's genuinely broken for
-good - not just stuck - doesn't reload forever; it falls through to a
-normal capture attempt and gets labeled `adapter_may_be_broken` like any
-other capture that didn't pan out.
+it from scratch.
+
+**One reload wasn't always enough.** A follow-up run
+(backpack-captures-2026-09-18T13-38-48.json, steps spaced a deliberate ~30s
+apart - so this isn't purely a "too fast" problem) showed two separate
+Classwork-tab pages still carrying the identical banner *after* their one
+reload attempt each. `REFRESH_RELOAD_LIMIT` (2) now allows a second try
+per page, tracked in `sessionStorage` (keyed by `location.pathname`, a
+count rather than a flag) so a page that's genuinely broken for good still
+stops retrying and falls through to a normal capture attempt, labeled
+`adapter_may_be_broken` like any other capture that didn't pan out.
+`REFRESH_RELOAD_DELAY_MS` (2s) pauses briefly before each reload, on the
+theory that reloading instantly risks landing right back in whatever race
+caused it in the first place. `DETAIL_STEP_TIMEOUT_MS`/
+`COURSE_STEP_TIMEOUT_MS` (background.js) were widened again (90s/120s) to
+comfortably cover two full reload cycles rather than skipping a page
+mid-recovery.
 
 ## Goal: resolve "what class is my child in right now" (not built yet)
 

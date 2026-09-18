@@ -14,6 +14,8 @@
   const SETTLE_QUIET_MS = 750;
   const SETTLE_CEILING_MS = 10000;
   const AUTO_CAPTURE_COOLDOWN_MS = 5000;
+  const REFRESH_RELOAD_LIMIT = 2; // one wasn't always enough in practice - see runCapture's needsRefresh handling
+  const REFRESH_RELOAD_DELAY_MS = 2000; // give whatever caused it a moment to clear before reloading into it again
   const SESSION_KEY = "backpack_session"; // written by background.js
 
   function waitForSettle() {
@@ -189,21 +191,33 @@
         // directly (reduced.needsRefresh - see reducer.js#looksStuckNeedingRefresh),
         // confirmed real after a rapid run of automated page-to-page
         // navigations. Waiting alone (the retries above) doesn't clear it,
-        // so force one real reload and let the fresh load capture it from
-        // scratch, same as the site's own banner says to do. Capped at one
-        // attempt per distinct page (sessionStorage, keyed by path) so a
-        // page that's genuinely stuck for good doesn't reload forever.
+        // so force a real reload and let the fresh load capture it from
+        // scratch, same as the site's own banner says to do. One reload
+        // wasn't always enough in practice (confirmed real: two separate
+        // Classwork-tab pages still showed the same banner after exactly
+        // one reload each, in a run otherwise spaced ~30s apart - so this
+        // isn't purely a "too fast" issue, and a second attempt is worth
+        // it) - capped at REFRESH_RELOAD_LIMIT per distinct page
+        // (sessionStorage, keyed by path) so a page that's genuinely stuck
+        // for good doesn't reload forever. A short pause before reloading
+        // gives whatever caused it more real time to clear on its own
+        // first, rather than reloading straight into the same race.
         if (reduced.needsRefresh) {
-          const reloadKey = `__backpack_reload_attempted__${location.pathname}`;
-          let alreadyReloaded = false;
+          const reloadKey = `__backpack_reload_attempts__${location.pathname}`;
+          let attempts = 0;
+          let storageAvailable = true;
           try {
-            alreadyReloaded = Boolean(sessionStorage.getItem(reloadKey));
-            if (!alreadyReloaded) sessionStorage.setItem(reloadKey, "1");
+            attempts = Number(sessionStorage.getItem(reloadKey)) || 0;
           } catch (e) {
-            // sessionStorage unavailable (e.g. a locked-down profile) - fall
-            // through and capture whatever's there rather than looping
+            storageAvailable = false; // e.g. a locked-down profile - fall through rather than loop
           }
-          if (!alreadyReloaded) {
+          if (storageAvailable && attempts < REFRESH_RELOAD_LIMIT) {
+            try {
+              sessionStorage.setItem(reloadKey, String(attempts + 1));
+            } catch (e) {
+              // ignore - worst case this reloads once more than intended
+            }
+            await new Promise((r) => setTimeout(r, REFRESH_RELOAD_DELAY_MS));
             location.reload();
             return;
           }
