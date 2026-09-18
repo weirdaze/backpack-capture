@@ -653,7 +653,7 @@ automatic, still nothing on a schedule, still a button press every time,
 and **Export capture** stays available as an unconditional local copy
 regardless of whether anyone ever logs in to schoolz at all.
 
-## Google sign-in for schoolz (added in 0.7.4)
+## Google sign-in for schoolz (added in 0.7.4, "key" reverted in 0.7.6)
 
 Email/password worked but asked for a password to be typed into a popup
 every time a session (and its refresh token) eventually expired - a
@@ -664,22 +664,32 @@ project already has Google configured as an auth provider (its own web
 frontend already offers Google SSO), so this needed nothing new on that
 side beyond one config entry (below).
 
-**Why a fixed `manifest.json` "key", specifically for this.**
+**Why a fixed `manifest.json` "key" was tried first, and reverted.**
 `chrome.identity.getRedirectURL()` always resolves to
 `https://<this extension's own id>.chromiumapp.org/` - and that exact URL
 has to be pre-registered in Supabase's redirect-URL allowlist for the
 flow to complete at all. An unpacked extension's id is normally derived
 from the absolute install path, which differs across machines and even
-across re-clones of the same repo - meaning every install would need its
-own allowlist entry, indefinitely. Pinning `manifest.json`'s `key` field
-(the RSA **public** key half of a keypair generated solely for this - not
-a secret, the same way a TLS certificate or an SSH public key isn't; the
-private half was discarded immediately since nothing here ever signs a
-`.crx`) fixes the id - and therefore the redirect URL - to one value
-regardless of where or how many times this is loaded unpacked. The
-resulting id/URL are recorded in this repo's own PR/commit history rather
-than repeated here, since they're derived facts anyone can recompute from
-the committed public key, not configuration to keep in sync by hand.
+across re-clones of the same repo - so a pinned `key` (the RSA **public**
+key half of a keypair generated solely for this, not a secret) fixed the
+id to one value regardless of install path, and worked as designed for
+unpacked/dev use.
+
+**It doesn't survive Store submission, though** - confirmed real: Chrome
+Web Store's own upload rejects any manifest containing a `key` field
+outright ("key field is not allowed in manifest"), full stop, no
+exception for a legitimately-owned keypair. The Store assigns its own
+permanent item id the moment a listing is first created (visible in the
+dashboard immediately, before publishing or review even completes), and
+that id - not anything in the manifest - is what a *published* install's
+`chrome.identity.getRedirectURL()` will resolve to from then on. `key` is
+removed again as of 0.7.6; a Store-installed copy needs its own dashboard
+item id added to Supabase's allowlist once that id is known, and an
+unpacked/dev copy loaded without a pinned key goes back to whatever id
+Chrome derives from its install path - visible directly in
+`chrome://extensions` (Developer mode on) if that copy's own sign-in needs
+registering too. Two different install paths can each have their own
+allowlist entry; Supabase's allowlist isn't limited to one value.
 
 **The one manual step this can't do for itself.** Supabase's OAuth
 "Redirect URLs" allowlist lives in that project's own dashboard
