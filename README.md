@@ -216,6 +216,14 @@ than an error — you'd trust an empty list. So every capture gets tagged:
 | `layout changed?` | The page didn't match the expected shape (Classroom: an `Assignment:`/`Material:`/`Announcement` `aria-label`; Genesis: a `Period <letter>` marker). The site may have changed its markup; the capture is still saved for inspection, but treat it as suspect. |
 | `login wall` | Never stored at all — detected as a sign-in redirect, on purpose, so it can't overwrite a good capture with nothing. |
 
+Classroom's own app can also get stuck mid-navigation — a real "Refresh
+your browser to update this page" banner, seen after a rapid run of
+many automated page visits in a row. Waiting longer doesn't clear that on
+its own, so once the normal retries are exhausted, the extension forces one
+real page reload (exactly what that banner itself is asking for), capped at
+one attempt per page. If that still doesn't clear it, the page saves as
+`layout changed?` like any other capture that didn't pan out.
+
 ## Scope of this repo
 
 This extension is **just the capture layer** (what the design notes call

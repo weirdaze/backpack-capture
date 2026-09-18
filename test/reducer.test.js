@@ -64,6 +64,19 @@ test("detects a login wall purely from an accounts.google.com URL", () => {
   assert.equal(reduced.loginWall, true);
 });
 
+test("detects Classroom's own stuck-SPA refresh banner", () => {
+  const url = "https://classroom.google.com/u/0/c/AAA/a/BBB/details";
+  const dom = loadFixture("classroom-needs-refresh.html", url);
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url });
+  assert.equal(reduced.needsRefresh, true);
+});
+
+test("never reports needsRefresh on an ordinary page", () => {
+  const dom = loadFixture("classroom-stream.html", "https://classroom.google.com/u/0/c/AAA");
+  const reduced = dom.window.BackpackReducer.reduce(dom.window.document.body, { url: dom.window.location.href });
+  assert.equal(reduced.needsRefresh, false);
+});
+
 test("leaves out the previously opened class's cached view", () => {
   const url = "https://classroom.google.com/u/2/w/ODcyNDkxNDc4MTk4/t/all";
   const dom = loadFixture("classroom-stale-view.html", url);
