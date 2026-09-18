@@ -11,6 +11,7 @@
   --ok-bg: #e3f4ec;
   --ok-fg: #1d6b45;
   --off-bg: #f1f3f2;
+  --highlight-bg: #e3f7f5;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -26,6 +27,11 @@
     --ok-bg: #163f2c;
     --ok-fg: #7be8a6;
     --off-bg: #1c2825;
+    /* Noticeably lighter and teal-tinted vs. --card/--bg, which sit very
+       close together in dark mode (near-black on near-black) - the two
+       highlighted cards need to actually read as distinct, not just carry
+       a thin border that's easy to miss at a glance. */
+    --highlight-bg: #1c3d3a;
   }
 }
 
@@ -45,6 +51,20 @@ body {
   background: var(--bg);
   color: var(--fg);
   font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* The two important cards (start/stop capture, publish to schoolz) - a
+   plainer --card background barely reads as distinct from --bg in dark
+   mode (near-black on near-black), so these get a visibly tinted
+   background and a solid accent border instead of the thin --border
+   everything else uses. Placed early so .session.active's own
+   border-color: var(--rec) (defined further down) still wins while a
+   capture is actually running - the "recording" state stays the one thing
+   that overrides this. */
+.session.highlight-card,
+.schoolz.highlight-card {
+  background: var(--highlight-bg);
+  border: 2px solid var(--accent);
 }
 
 header {

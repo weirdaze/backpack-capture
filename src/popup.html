@@ -11,15 +11,10 @@
       <p class="subtitle">Saves the school pages you open, right here in your browser. Nothing is sent anywhere.</p>
     </header>
 
-    <section id="replay" class="replay" hidden>
-      <div>
-        <strong id="replayTitle">Replaying</strong>
-        <div id="replayDetail" class="muted"></div>
-      </div>
-      <button id="replayCancel">Stop</button>
-    </section>
-
-    <section id="session" class="session">
+    <!-- The two important cards: starting/stopping capture, and publishing
+         what's captured. Kept together at the top and visually distinct
+         (see .highlight-card) from everything below, which is secondary. -->
+    <section id="session" class="session highlight-card">
       <div class="session-state">
         <span class="dot" aria-hidden="true"></span>
         <div>
@@ -29,6 +24,43 @@
       </div>
       <button id="sessionToggle" class="primary">Start capture</button>
       <button id="saveTemplate" hidden>Save last session as a template</button>
+    </section>
+
+    <section class="schoolz highlight-card" id="schoolzSection">
+      <h2>Publish to schoolz</h2>
+      <p class="muted">
+        Optional — sends your saved captures to your own schoolz account instead of (or alongside) exporting a file.
+        Nothing is sent until you press Publish.
+      </p>
+
+      <div id="schoolzLoginForm">
+        <button id="schoolzGoogleBtn">Continue with Google</button>
+        <div class="schoolz-divider"><span>or</span></div>
+        <input id="schoolzEmail" type="email" placeholder="Email" autocomplete="username" />
+        <input id="schoolzPassword" type="password" placeholder="Password" autocomplete="current-password" />
+        <button id="schoolzLoginBtn" class="primary">Log in</button>
+      </div>
+
+      <div id="schoolzPublishForm" hidden>
+        <div class="schoolz-account-row">
+          <span id="schoolzEmailLabel" class="muted"></span>
+          <button id="schoolzLogoutBtn" class="icon" title="Log out">Log out</button>
+        </div>
+        <select id="schoolzStudentSelect"></select>
+        <button id="schoolzPublishBtn" class="primary">Publish captures</button>
+      </div>
+
+      <p id="schoolzStatus" class="status" hidden></p>
+    </section>
+
+    <!-- Everything below is secondary: still here, just not competing with
+         the two cards above for attention. -->
+    <section id="replay" class="replay" hidden>
+      <div>
+        <strong id="replayTitle">Replaying</strong>
+        <div id="replayDetail" class="muted"></div>
+      </div>
+      <button id="replayCancel">Stop</button>
     </section>
 
     <section id="crawlProgress" class="crawl-progress" hidden>
@@ -63,33 +95,6 @@
       <button id="captureNow">Capture just this page</button>
       <button id="exportCapture">Export capture</button>
       <button id="clearAll" class="danger">Clear all</button>
-    </section>
-
-    <section class="schoolz" id="schoolzSection">
-      <h2>Publish to schoolz</h2>
-      <p class="muted">
-        Optional — sends your saved captures to your own schoolz account instead of (or alongside) exporting a file.
-        Nothing is sent until you press Publish.
-      </p>
-
-      <div id="schoolzLoginForm">
-        <button id="schoolzGoogleBtn">Continue with Google</button>
-        <div class="schoolz-divider"><span>or</span></div>
-        <input id="schoolzEmail" type="email" placeholder="Email" autocomplete="username" />
-        <input id="schoolzPassword" type="password" placeholder="Password" autocomplete="current-password" />
-        <button id="schoolzLoginBtn" class="primary">Log in</button>
-      </div>
-
-      <div id="schoolzPublishForm" hidden>
-        <div class="schoolz-account-row">
-          <span id="schoolzEmailLabel" class="muted"></span>
-          <button id="schoolzLogoutBtn" class="icon" title="Log out">Log out</button>
-        </div>
-        <select id="schoolzStudentSelect"></select>
-        <button id="schoolzPublishBtn" class="primary">Publish captures</button>
-      </div>
-
-      <p id="schoolzStatus" class="status" hidden></p>
     </section>
 
     <p id="status" class="status" hidden></p>
