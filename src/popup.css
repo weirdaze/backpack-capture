@@ -123,25 +123,6 @@ h2 {
   font-size: 14px;
 }
 
-.checkbox-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.checkbox-row input {
-  flex: none;
-  margin-top: 2px;
-}
-
-.checkbox-row.disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 .replay {
   margin: 0 16px 12px;
   padding: 10px 12px;
@@ -281,6 +262,46 @@ button.icon:hover {
   gap: 8px;
   padding: 0 16px 12px;
   flex-wrap: wrap;
+}
+
+.schoolz {
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.schoolz h2 {
+  margin-bottom: 4px;
+}
+
+.schoolz .muted {
+  margin: 0 0 8px;
+}
+
+#schoolzLoginForm,
+#schoolzPublishForm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.schoolz input,
+.schoolz select {
+  font: inherit;
+  padding: 6px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.schoolz-account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 button {

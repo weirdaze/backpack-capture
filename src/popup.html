@@ -27,17 +27,6 @@
           <div id="sessionDetail" class="muted"></div>
         </div>
       </div>
-      <label id="followLinksRow" class="checkbox-row">
-        <input type="checkbox" id="followLinks" />
-        <span>Also open each assignment/material page (Classroom only) to capture its instructions</span>
-      </label>
-      <label id="crawlAllCoursesRow" class="checkbox-row">
-        <input type="checkbox" id="crawlAllCourses" />
-        <span
-          >Starting from the Classroom homepage: also walk every active class (its Classwork page, then each
-          assignment) — up to 10 classes, 20 items each. This can take a while.</span
-        >
-      </label>
       <button id="sessionToggle" class="primary">Start capture</button>
       <button id="saveTemplate" hidden>Save last session as a template</button>
     </section>
@@ -74,6 +63,31 @@
       <button id="captureNow">Capture just this page</button>
       <button id="exportCapture">Export capture</button>
       <button id="clearAll" class="danger">Clear all</button>
+    </section>
+
+    <section class="schoolz" id="schoolzSection">
+      <h2>Publish to schoolz</h2>
+      <p class="muted">
+        Optional — sends your saved captures to your own schoolz account instead of (or alongside) exporting a file.
+        Nothing is sent until you press Publish.
+      </p>
+
+      <div id="schoolzLoginForm">
+        <input id="schoolzEmail" type="email" placeholder="Email" autocomplete="username" />
+        <input id="schoolzPassword" type="password" placeholder="Password" autocomplete="current-password" />
+        <button id="schoolzLoginBtn" class="primary">Log in</button>
+      </div>
+
+      <div id="schoolzPublishForm" hidden>
+        <div class="schoolz-account-row">
+          <span id="schoolzEmailLabel" class="muted"></span>
+          <button id="schoolzLogoutBtn" class="icon" title="Log out">Log out</button>
+        </div>
+        <select id="schoolzStudentSelect"></select>
+        <button id="schoolzPublishBtn" class="primary">Publish captures</button>
+      </div>
+
+      <p id="schoolzStatus" class="status" hidden></p>
     </section>
 
     <p id="status" class="status" hidden></p>

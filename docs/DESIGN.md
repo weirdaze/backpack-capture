@@ -56,7 +56,10 @@ person reading their own account in their own browser — because it is one.
    make this readable at a glance (no `cookies`, no `webRequest`, no
    `<all_urls>`).
 3. **Local-first, no server.** This is a child's education record. It stays
-   on the machine it was captured on until the person exports it themselves.
+   on the machine it was captured on until the person moves it themselves -
+   exporting a file, or (added in 0.7.3, see "Publishing to schoolz" below)
+   publishing to their own schoolz account. Either way, it's a button they
+   press, not something the extension ever does on its own.
 4. **Never store a login page as if it were data.** A capture that lands on
    a sign-in redirect looks structurally valid and contains zero real
    content — it's detected explicitly (URL + heuristics) and refused rather
@@ -539,6 +542,20 @@ early" instead of "finished" so it's never mistaken for a clean run. A
 single bad page still resets the counter back to zero rather than ending
 the walk - this is specifically about a *run* of them, not one flaky page.
 
+**A likelier explanation, in hindsight (0.7.3).** The "Classroom
+throttling" theory above was inferred from the pattern, never confirmed -
+and a simpler, better-fitting explanation surfaced afterward: the laptop
+went to sleep partway through that same walk. Sleep suspends every timer
+and drops the network mid-navigation; waking up mid-page-load is exactly
+the kind of thing that could leave Classroom's own SPA in this same stuck
+state, and would explain a uniform, unrecovering string of failures far
+better than gradually-worsening throttling would. The circuit breaker is
+still worth having either way (a run of failures should stop regardless of
+cause), but `startCourseCrawl`'s own toast now says plainly, and sticky, to
+keep the computer on and awake for the walk - see "Publishing to schoolz"
+below for where the sleep/network boundary actually starts to matter for
+correctness, not just wasted time.
+
 ## Cumulative progress across a multi-batch walk (added in 0.7.2)
 
 A real 14-course walk (backpack-captures-2026-09-18T16-12-14.json) needed
@@ -557,6 +574,84 @@ point). `saveCrawlProgress` adds the current batch's own position to
 `coursesVisitedBeforeBatch` rather than reporting it alone, so the second
 batch above now reads "class 11 of 14" onward instead of resetting - a
 continuation, not a restart.
+
+## Following links and walking every class are always on now (added in 0.7.3)
+
+Both were opt-in checkboxes since 0.5.0/0.6.0. They're not anymore -
+following assignment links and walking every class from the homepage now
+happen automatically for any active session, no checkbox to remember to
+check.
+
+What makes this safe to default on, rather than a bigger behavior change to
+force on someone: **Export capture** and the new **Publish captures** (see
+below) are both still exactly what they always were - a button the person
+presses, showing exactly what's about to leave the device before it does.
+Nothing about removing the checkboxes changes what's *captured* becoming
+more automatic than it already was (auto-capture on every page visited was
+never gated behind these two checkboxes to begin with) - it only removes a
+now-redundant choice about how *thoroughly* an active session explores,
+given the person retains full visibility and a manual off-ramp (the export
+file) regardless of how the checkboxes were ever set.
+
+## Publishing to schoolz (added in 0.7.3)
+
+The first (and only) network calls this codebase has ever made anywhere.
+Everything above this point in the file was built around "nothing leaves
+the device but an explicit export" - this adds a second, equally explicit
+way data can leave: publishing captures to the person's own
+[schoolz](https://schoolz.sitenaut.com) family account, where a "bucket 3"
+import pipeline (`schoolz/backend/routers/bucket3.py`) already exists to
+turn raw captures into a kids' due/missing/done dashboard. `README.md`'s
+"Publishing to schoolz" section is the user-facing description; this is
+the engineering rationale.
+
+**Why schoolz's own Supabase project, called directly.** schoolz's web
+frontend already authenticates against its own Supabase project
+(`https://lxithuvstfslndvsdnsk.supabase.co`, confirmed real by extracting
+it - and the matching "publishable" key - directly from schoolz's own
+public, already-deployed frontend JS bundle) using email+password. Calling
+Supabase's `/auth/v1/token` REST endpoint directly (`grant_type=password`
+to log in, `grant_type=refresh_token` to renew) needed no new backend work
+on schoolz's side and no bundled `supabase-js` client on this side - two
+plain POST requests are the entire surface this needed. The "publishable"
+key is exactly analogous to a Stripe publishable key: meant to ship in
+public client code, safe to hardcode here the same way schoolz's own
+frontend already does.
+
+**Why the import endpoint needed nothing new.** `POST
+/students/{id}/bucket3/import` already expects `{captures: [...]}` with
+each entry carrying `adapter`, `source_url`, `reduced_text`, `captured_at`,
+`status`, `char_count` - which is exactly this extension's own envelope
+shape, unchanged. `schoolzPublish` (`src/background.js`) sends every
+capture currently stored, every time, rather than tracking what's already
+been sent - schoolz's own import already dedupes by content hash per
+student, so resending is safe and simpler than this extension keeping its
+own "already published" ledger.
+
+**Token storage and refresh.** `backpack_schoolz_auth`
+(`chrome.storage.local`) holds `{access_token, refresh_token, expires_at,
+email}` - the same storage every other piece of extension state already
+lives in, no new security posture introduced. `ensureFreshSchoolzToken`
+refreshes proactively (a minute of skew before actual expiry) rather than
+waiting for a 401, so a login from hours or days ago still works
+transparently the next time someone presses Publish; a refresh token that's
+stopped working clears the stored auth and the popup falls back to showing
+the login form, rather than a confusing repeated failure.
+
+**Which student.** `GET /students` (already existed, used by schoolz's own
+"add a child" flow) lists every student the logged-in guardian has linked -
+the popup's dropdown is that list verbatim, so a family with more than one
+child picks the right one each time rather than this extension guessing.
+
+**Why this is still "nothing leaves the device but explicitly" in spirit,
+not in letter.** Every other line in this codebase's own privacy claims
+was written before this feature existed and said "nothing is sent
+anywhere," full stop - that's now specifically untrue, and README.md/this
+file are both updated to say so plainly rather than leave a stale claim
+standing. What's preserved is the *shape* of the guarantee: still nothing
+automatic, still nothing on a schedule, still a button press every time,
+and **Export capture** stays available as an unconditional local copy
+regardless of whether anyone ever logs in to schoolz at all.
 
 ## Goal: resolve "what class is my child in right now" (not built yet)
 

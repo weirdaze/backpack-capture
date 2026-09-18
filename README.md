@@ -11,10 +11,13 @@ every other website Chrome never loads it, so it can't see or record the
 rest of your browsing. **Nothing is captured until you press Start
 capture.**
 
-**It is read-only and local-only.** It never logs in, never submits a form,
-never reads cookies or your password, and never sends anything over the
-network on its own. The only network-shaped thing it does is let *you*
-save an export file at the end.
+**It is read-only, and stays on your device unless you say otherwise.** It
+never logs in, never submits a form, never reads cookies or your password,
+and never sends anything over the network on its own. Two things move data
+off the device, and both require you to press a button each time: exporting
+a file, or optionally publishing your captures to your own
+[schoolz](https://schoolz.sitenaut.com) account (see "Publishing to
+schoolz" below) — nothing is sent anywhere by default.
 
 ## Why it works this way
 
@@ -66,21 +69,24 @@ roughly 80KB of actual signal; on a real Genesis student-summary page it's
 
 - It does not log in for you, submit any form, or click anything on
   Google's side. If you're not logged in, it detects the login page and
-  refuses to store a capture instead of silently saving "nothing." The one
-  navigation it *will* do is opt-in: with **Also open each assignment page**
-  checked, it drives the current tab to a real link Classroom already
-  rendered and back — the same address-based approach templates use, never
-  a click or a form submission.
+  refuses to store a capture instead of silently saving "nothing." The
+  navigation it *will* do — always on during a session, see below — drives
+  the current tab to a real link Classroom already rendered and back, the
+  same address-based approach templates use, never a click or a form
+  submission.
 - It does not extract structured due-dates/assignments for you — that's a
   deliberately separate next step (see [Scope](#scope-of-this-repo) below).
   This repo only produces the reduced JSON; turning that into a due-work
   list is a follow-up project.
 - It does not read cookies, `localStorage`, or anything else that could
-  authenticate as you. Check `manifest.json` — the only permissions are
-  `storage`, `downloads`, `scripting`, `activeTab`, and host access to
-  `classroom.google.com` and `*/genesis/parents*` only.
-- It does not talk to any server. There is no telemetry, no analytics, no
-  crash reporting, no API calls anywhere in this extension.
+  authenticate as you. Check `manifest.json` — the permissions are
+  `storage`, `downloads`, `activeTab`, and host access to
+  `classroom.google.com`, `*/genesis/parents*`, and (only for the optional
+  publish feature below) schoolz's own API and auth hosts.
+- It does not talk to any server on its own. There is no telemetry, no
+  analytics, no crash reporting — the only outbound calls this extension
+  ever makes are the ones described under "Publishing to schoolz," and only
+  when you press **Log in** or **Publish captures**.
 - It currently has adapters for Google Classroom and the Genesis Parent
   Portal. Other portals (ClassDojo, Remind, ...) are a documented future
   step, not built yet — see `docs/DESIGN.md`.
@@ -138,12 +144,15 @@ extension:
 
 A class's stream or Classwork list often only shows a title and due date —
 the actual instructions ("how to do this," what's expected) live on the
-assignment's own details page. Check **Also open each assignment/material
-page** before pressing **Start capture** and, every time a Classwork page is
-captured, the same tab briefly opens each assignment or material it links
-to, captures that page too, then returns to where it was. It's on-screen
-the whole time — the tab visibly navigates away and back, with a toast
-naming how many pages it's about to open — never a background fetch.
+assignment's own details page. This is always on during a session: every
+time a Classwork page is captured, the same tab briefly opens each
+assignment or material it links to, captures that page too, then returns
+to where it was. It's on-screen the whole time — the tab visibly navigates
+away and back, with a toast naming how many pages it's about to open —
+never a background fetch. There's no separate opt-in for this anymore,
+since **Export capture** and **Publish captures** both stay one-click,
+user-triggered actions — you always see and control exactly what was
+captured before anything leaves the device.
 
 This prefers a **real link Classroom itself rendered** on the page. Where
 one doesn't exist — confirmed the norm on a Classwork page, where every item
@@ -156,22 +165,24 @@ check into an open-ended crawl.
 
 ### Walking every class from the homepage
 
-The option above only follows links on whatever page you're already
-looking at. To capture every assignment for every class in one go, open
-the Classroom homepage, check **Starting from the Classroom homepage: also
-walk every active class**, then press **Start capture**. The tab visits
-each class's Classwork page (the complete, topic-organized list — not the
-Stream, which Google's own Classroom help documents as a message board and
-which several teachers have reported capping out at a handful of recent
-posts), captures it, opens each assignment/material it finds there, then
-moves to the next class, and finally returns to the homepage. A toast
-tracks it the whole way.
+The feature above only follows links on whatever page you're already
+looking at. This one is also always on: land on the Classroom homepage
+during a session and the tab visits each active class's Classwork page
+(the complete, topic-organized list — not the Stream, which Google's own
+Classroom help documents as a message board and which several teachers
+have reported capping out at a handful of recent posts), captures it,
+opens each assignment/material it finds there, then moves to the next
+class, and finally returns to the homepage. A toast tracks it the whole
+way, and **please keep the computer on and awake while it runs** — a
+laptop going to sleep partway through a walk is the most likely real cause
+seen so far of pages coming back stuck ("Refresh your browser to update
+this page"), not anything about Classroom itself.
 
-This is a much bigger action than the per-page option — up to 10 classes
-times 20 items each, which can take a while and means the tab is out of
-your hands for a stretch — so it's capped, off by default, and only ever
-triggered by actually landing on the homepage. It only ever walks classes
-the homepage lists as active; Classroom keeps archived classes behind a
+This is a much bigger action than the per-page feature above — up to 10
+classes times 20 items each, which can take a while and means the tab is
+out of your hands for a stretch — so it's capped, and only ever triggered
+by actually landing on the homepage. It only ever walks classes the
+homepage lists as active; Classroom keeps archived classes behind a
 separate link this never follows. Like everything else here, it never
 clicks anything on the site's side — it only ever drives the tab to an
 address, whether that's a real link Classroom rendered or (for a course's
@@ -227,6 +238,34 @@ that button only deletes captured pages. Class and student ids stay stable
 within a school year, so a template should last the year; re-record it after
 a rollover, or if a replayed step reports nothing captured.
 
+## Publishing to schoolz
+
+Optional, and off by default in the sense that nothing here ever runs on
+its own — every step is a button you press. This sends your captures to
+your own [schoolz](https://schoolz.sitenaut.com) family account instead of
+(or alongside) exporting a file, so a class's assignments and grades show
+up in schoolz's kids view without you having to import the export file by
+hand.
+
+1. Open the popup and find **Publish to schoolz** below the main buttons.
+2. The first time, enter your schoolz email and password and press
+   **Log in** — this is the same login schoolz's own website uses; the
+   extension never sees or stores your password itself, only the session
+   token schoolz's login hands back.
+3. Once logged in, pick which child from a dropdown of the students on
+   your schoolz account, then press **Publish captures**. Every capture
+   currently saved in this extension is sent; schoolz's own import already
+   skips anything it's seen before (matched by content, not just address),
+   so publishing again later only adds what's new.
+4. **Log out** clears the stored login from this extension; it doesn't
+   touch your schoolz account itself.
+
+This is the one deliberate exception to "nothing leaves the device" above.
+It only ever happens when you press **Log in** or **Publish captures** —
+never automatically, never on a schedule, and **Export capture** stays
+available the whole time as a plain local file, so you always have your
+own copy independent of whether you ever publish anything.
+
 ## Status badges, and why they exist
 
 A capture that "succeeds" but silently contains nothing useful is worse
@@ -272,11 +311,14 @@ Classroom, Genesis, or any school district.
   shows while it's on, and it turns off when you press End capture or
   Chrome restarts.
 - Everything stays in the browser's local extension storage until you
-  explicitly export it.
-- No network requests anywhere in this codebase — you can verify this by
-  reading `src/*.js` (there is no `fetch`, no `XMLHttpRequest`, no analytics
-  SDK).
-- Uninstalling the extension deletes all locally stored captures.
+  explicitly export it or publish it (see "Publishing to schoolz" above).
+- The only network requests anywhere in this codebase are the schoolz
+  login and publish calls (`src/background.js`'s `schoolzLogin`/
+  `schoolzListStudents`/`schoolzPublish`), and only when you press the
+  corresponding button — you can verify this by reading `src/*.js`; every
+  `fetch` call in the codebase is inside one of those three functions.
+- Uninstalling the extension deletes all locally stored captures and any
+  stored schoolz login.
 - Because this handles a child's education records, treat exported JSON
   files the same way you'd treat a saved report card or homework folder —
   it's yours, but it's still their data.
