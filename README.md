@@ -336,6 +336,16 @@ npm test        # runs the reducer test suite (node:test + jsdom) against fixtur
 and tested outside the browser — see `test/reducer.test.js` and
 `test/fixtures/`.
 
+## Chrome Web Store submission assets
+
+`store-assets/` holds the images used for the Chrome Web Store listing —
+two 1280×800 screenshots and a 440×280 small promotional tile, all
+composed from the real popup UI seeded with clearly synthetic data (fake
+name, fake email, fake class); none of it is a real capture or a real
+account. The privacy policy required for a listing that handles personal
+data is published at
+[the Backpack Capture Privacy Policy](https://claude.ai/artifact/7UJUTFZentJmCPQSrVm1zc).
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
