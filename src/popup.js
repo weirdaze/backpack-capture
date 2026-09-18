@@ -194,7 +194,11 @@ async function renderCrawlProgress() {
   }
   section.hidden = false;
 
-  document.getElementById("crawlProgressTitle").textContent = progress.active ? "Walking classes…" : "Walk finished";
+  document.getElementById("crawlProgressTitle").textContent = progress.active
+    ? "Walking classes…"
+    : progress.aborted
+    ? "Walk stopped early — repeated broken pages"
+    : "Walk finished";
 
   const courseRow = document.getElementById("crawlCourseRow");
   const isCourseWalk = progress.kind === "course";
