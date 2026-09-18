@@ -95,6 +95,17 @@ document.getElementById("schoolzLoginBtn").addEventListener("click", async () =>
   renderSchoolz();
 });
 
+document.getElementById("schoolzGoogleBtn").addEventListener("click", async () => {
+  setSchoolzStatus("Continue in the Google sign-in window…");
+  const result = await chrome.runtime.sendMessage({ type: "SCHOOLZ_LOGIN_GOOGLE" });
+  if (!result || !result.ok) {
+    setSchoolzStatus(`Google sign-in failed: ${(result && result.error) || "unknown error"}`);
+    return;
+  }
+  setSchoolzStatus("");
+  renderSchoolz();
+});
+
 document.getElementById("schoolzLogoutBtn").addEventListener("click", async () => {
   await chrome.runtime.sendMessage({ type: "SCHOOLZ_LOGOUT" });
   setSchoolzStatus("");
