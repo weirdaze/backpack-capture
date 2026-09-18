@@ -20,8 +20,9 @@ const IDLE_SESSION = {
   startedAt: null,
   count: 0,
   pages: [],
-  followAssignmentLinks: false,
-  crawlAllCourses: false,
+  // Always on - no longer a per-session choice (see START_SESSION below).
+  followAssignmentLinks: true,
+  crawlAllCourses: true,
   visitedDetailLinks: [],
   visitedCourseIds: [],
 };
@@ -412,7 +413,7 @@ async function advanceCrawlStep(tabId, result) {
   await goToNextCrawlStep(tabId);
 }
 
-function startCrawl(tabId, returnUrl, queue, toastMessage, progressContext) {
+function startCrawl(tabId, returnUrl, queue, toastMessage, progressContext, sticky) {
   if (pageCrawls.has(tabId) || !queue.length) return; // a crawl is already running in this tab
   pageCrawls.set(tabId, {
     queue,
@@ -444,7 +445,7 @@ function startCrawl(tabId, returnUrl, queue, toastMessage, progressContext) {
   // its time waiting on page loads, same as replay.
   crawl.keepAlive = setInterval(() => chrome.runtime.getPlatformInfo(), 20000);
   saveCrawlProgress(crawl);
-  chrome.tabs.sendMessage(tabId, { type: "SHOW_REPLAY_TOAST", message: toastMessage }).catch(() => {
+  chrome.tabs.sendMessage(tabId, { type: "SHOW_REPLAY_TOAST", message: toastMessage, sticky: Boolean(sticky) }).catch(() => {
     // no content script yet on this tab - the navigation itself still proceeds
   });
   goToNextCrawlStep(tabId);
@@ -470,12 +471,22 @@ function startCourseCrawl(tabId, session, returnUrl, courseLinks) {
     if (queue.length >= MAX_COURSES_PER_CRAWL) break;
   }
   if (!queue.length) return;
+  // Sticky, and says so plainly: a real run's uniform, unrecovering string
+  // of failures (see CIRCUIT_BREAKER_THRESHOLD above) looked exactly like
+  // Classroom throttling at first, but the far simpler and likelier
+  // explanation surfaced afterward was the laptop going to sleep mid-walk -
+  // suspending every timer and dropping the network mid-navigation, which
+  // Classroom's own SPA can surface as this same stuck-refresh state on
+  // waking. A walk that never sleeps has nothing like this to recover from.
   startCrawl(
     tabId,
     returnUrl,
     queue,
-    `Backpack: walking ${queue.length} class${queue.length === 1 ? "" : "es"} to capture their Classwork and assignments…`,
-    { totalKnownCourses: courseLinks.length, coursesVisitedBeforeBatch: visited.size }
+    `Backpack: walking ${queue.length} class${
+      queue.length === 1 ? "" : "es"
+    } to capture their Classwork and assignments… This can take a while - please keep this computer on and awake. If it sleeps or locks partway through, pages can get stuck and the walk may stop early.`,
+    { totalKnownCourses: courseLinks.length, coursesVisitedBeforeBatch: visited.size },
+    true
   );
 }
 
@@ -489,6 +500,117 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   crawl.finished = true;
   saveCrawlProgress(crawl); // otherwise the popup would show a stuck "active" walk forever
 });
+
+// ---- publishing to schoolz ---------------------------------------------------
+//
+// Opt-in, off by default, and the one deliberate exception to this
+// extension's standing "nothing is sent anywhere unless you export it"
+// promise: a parent can choose to publish their local captures to their own
+// family's schoolz account instead of (or alongside) a manual file export.
+// Nothing here ever runs on its own - login and publish are both only ever
+// triggered by a person pressing a button in the popup.
+//
+// schoolz's own web app authenticates the same way (Supabase email/password,
+// same project) - this calls Supabase's auth REST API directly rather than
+// bundling the supabase-js client, since a plain email+password grant and a
+// refresh-token grant are the only two calls needed. SCHOOLZ_SUPABASE_URL
+// and SCHOOLZ_SUPABASE_PUBLISHABLE_KEY are exactly what schoolz's own public
+// frontend already ships embedded in its own JS bundle - a "publishable"
+// key is meant for exactly this, the same way a Stripe publishable key is.
+const SCHOOLZ_SUPABASE_URL = "https://lxithuvstfslndvsdnsk.supabase.co";
+const SCHOOLZ_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_ymxiIhkeaV6R5egNQI9gwA_iY95YXIR";
+const SCHOOLZ_API_URL = "https://schoolz-api.sitenaut.com";
+const SCHOOLZ_AUTH_KEY = "backpack_schoolz_auth"; // { access_token, refresh_token, expires_at, email }
+const SCHOOLZ_TOKEN_REFRESH_SKEW_MS = 60000; // refresh a little before it actually expires, not after
+
+async function getSchoolzAuth() {
+  return readKey(SCHOOLZ_AUTH_KEY, null);
+}
+
+async function saveSchoolzAuth(auth) {
+  await chrome.storage.local.set({ [SCHOOLZ_AUTH_KEY]: auth });
+}
+
+function schoolzAuthFromTokenResponse(json, email) {
+  const expiresAt = json.expires_at ? json.expires_at * 1000 : Date.now() + (json.expires_in || 3600) * 1000;
+  return {
+    access_token: json.access_token,
+    refresh_token: json.refresh_token,
+    expires_at: expiresAt,
+    email,
+  };
+}
+
+async function schoolzLogin(email, password) {
+  const response = await fetch(`${SCHOOLZ_SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SCHOOLZ_SUPABASE_PUBLISHABLE_KEY },
+    body: JSON.stringify({ email, password }),
+  });
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return { ok: false, error: json.error_description || json.msg || "Login failed" };
+  }
+  await saveSchoolzAuth(schoolzAuthFromTokenResponse(json, email));
+  return { ok: true };
+}
+
+async function schoolzLogout() {
+  await chrome.storage.local.remove(SCHOOLZ_AUTH_KEY);
+}
+
+// Refreshes the access token when it's at or near expiry, so a login from
+// hours or days ago (the refresh token itself lasts far longer) still works
+// without asking the person to sign in again every time. Returns null (and
+// clears the stored auth) if the refresh token itself has stopped working -
+// the popup falls back to showing the login form again in that case.
+async function ensureFreshSchoolzToken() {
+  const auth = await getSchoolzAuth();
+  if (!auth) return null;
+  if (auth.expires_at - Date.now() > SCHOOLZ_TOKEN_REFRESH_SKEW_MS) return auth.access_token;
+
+  const response = await fetch(`${SCHOOLZ_SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SCHOOLZ_SUPABASE_PUBLISHABLE_KEY },
+    body: JSON.stringify({ refresh_token: auth.refresh_token }),
+  });
+  if (!response.ok) {
+    await schoolzLogout();
+    return null;
+  }
+  const json = await response.json();
+  const refreshed = schoolzAuthFromTokenResponse(json, auth.email);
+  await saveSchoolzAuth(refreshed);
+  return refreshed.access_token;
+}
+
+async function schoolzListStudents() {
+  const token = await ensureFreshSchoolzToken();
+  if (!token) return { ok: false, error: "not_logged_in" };
+  const response = await fetch(`${SCHOOLZ_API_URL}/students`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) return { ok: false, error: `schoolz returned ${response.status}` };
+  return { ok: true, students: await response.json() };
+}
+
+// Sends every capture currently stored, every time - schoolz's own import
+// endpoint already dedupes by content hash per student (skips anything it's
+// already stored), so resending is safe and simple rather than this
+// extension having to track what it already published.
+async function schoolzPublish(studentId) {
+  const token = await ensureFreshSchoolzToken();
+  if (!token) return { ok: false, error: "not_logged_in" };
+  const captures = await getCaptures();
+  const response = await fetch(`${SCHOOLZ_API_URL}/students/${encodeURIComponent(studentId)}/bucket3/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ captures }),
+  });
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) return { ok: false, error: json.detail || `schoolz returned ${response.status}` };
+  return { ok: true, result: json };
+}
 
 // ---- messages ---------------------------------------------------------------
 
@@ -522,9 +644,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             courseLinks: message.courseLinks,
           });
         } else if (session.active && message.envelope.adapter === "classroom" && message.envelope.status === "ok") {
-          if (session.crawlAllCourses && isHomeUrl(message.envelope.source_url) && message.courseLinks && message.courseLinks.length) {
+          // Always on (see START_SESSION) - following links and walking every
+          // class from the homepage are no longer an opt-in choice, since
+          // Export/Publish staying one-click, user-triggered actions already
+          // guarantees the person sees and controls everything captured.
+          if (isHomeUrl(message.envelope.source_url) && message.courseLinks && message.courseLinks.length) {
             startCourseCrawl(tabId, session, message.envelope.source_url, message.courseLinks);
-          } else if (session.followAssignmentLinks && message.detailLinks && message.detailLinks.length) {
+          } else if (message.detailLinks && message.detailLinks.length) {
             startDetailOnlyCrawl(tabId, session, message.envelope.source_url, message.detailLinks);
           }
         }
@@ -540,8 +666,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         startedAt: new Date().toISOString(),
         count: 0,
         pages: [],
-        followAssignmentLinks: Boolean(message.followAssignmentLinks),
-        crawlAllCourses: Boolean(message.crawlAllCourses),
+        // Always on - no longer a choice the popup passes in. Following
+        // links and walking every class are safe defaults precisely because
+        // Export/Publish stay one-click, user-triggered actions - the
+        // person always sees and controls exactly what was captured before
+        // anything leaves the device.
+        followAssignmentLinks: true,
+        crawlAllCourses: true,
         visitedDetailLinks: [],
         visitedCourseIds: [],
       };
@@ -698,6 +829,48 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } catch (err) {
         sendResponse({ ok: false, error: String(err) });
       }
+    })();
+    return true;
+  }
+
+  if (message && message.type === "SCHOOLZ_GET_STATE") {
+    (async () => {
+      const auth = await getSchoolzAuth();
+      if (!auth) {
+        sendResponse({ ok: true, loggedIn: false });
+        return;
+      }
+      const students = await schoolzListStudents();
+      if (!students.ok) {
+        // The stored login no longer works (e.g. the refresh token expired
+        // days later) - report logged-out rather than showing a student
+        // picker that can't actually publish anything.
+        sendResponse({ ok: true, loggedIn: false });
+        return;
+      }
+      sendResponse({ ok: true, loggedIn: true, email: auth.email, students: students.students });
+    })();
+    return true;
+  }
+
+  if (message && message.type === "SCHOOLZ_LOGIN") {
+    (async () => {
+      sendResponse(await schoolzLogin(message.email, message.password));
+    })();
+    return true;
+  }
+
+  if (message && message.type === "SCHOOLZ_LOGOUT") {
+    (async () => {
+      await schoolzLogout();
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (message && message.type === "SCHOOLZ_PUBLISH") {
+    (async () => {
+      sendResponse(await schoolzPublish(message.studentId));
     })();
     return true;
   }

@@ -38,27 +38,96 @@ function setStatus(text) {
   el.hidden = !text;
 }
 
-const FOLLOW_LINKS_PREF_KEY = "backpack_follow_links_pref";
-const CRAWL_ALL_COURSES_PREF_KEY = "backpack_crawl_all_courses_pref";
+function setSchoolzStatus(text) {
+  const el = document.getElementById("schoolzStatus");
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+async function renderSchoolz() {
+  const state = await chrome.runtime.sendMessage({ type: "SCHOOLZ_GET_STATE" });
+  const loginForm = document.getElementById("schoolzLoginForm");
+  const publishForm = document.getElementById("schoolzPublishForm");
+
+  if (!state || !state.loggedIn) {
+    loginForm.hidden = false;
+    publishForm.hidden = true;
+    return;
+  }
+
+  loginForm.hidden = true;
+  publishForm.hidden = false;
+  document.getElementById("schoolzEmailLabel").textContent = state.email;
+
+  const select = document.getElementById("schoolzStudentSelect");
+  const previousValue = select.value;
+  select.innerHTML = "";
+  for (const student of state.students || []) {
+    const option = document.createElement("option");
+    option.value = student.id;
+    option.textContent = `${student.first_name} ${student.last_name}`;
+    select.appendChild(option);
+  }
+  if (previousValue && [...select.options].some((o) => o.value === previousValue)) {
+    select.value = previousValue;
+  }
+  document.getElementById("schoolzPublishBtn").disabled = !select.options.length;
+  if (!select.options.length) {
+    setSchoolzStatus("No students on your schoolz account yet — add one at schoolz.sitenaut.com first.");
+  }
+}
+
+document.getElementById("schoolzLoginBtn").addEventListener("click", async () => {
+  const email = document.getElementById("schoolzEmail").value.trim();
+  const password = document.getElementById("schoolzPassword").value;
+  if (!email || !password) {
+    setSchoolzStatus("Enter your email and password.");
+    return;
+  }
+  setSchoolzStatus("Logging in…");
+  const result = await chrome.runtime.sendMessage({ type: "SCHOOLZ_LOGIN", email, password });
+  if (!result || !result.ok) {
+    setSchoolzStatus(`Login failed: ${(result && result.error) || "unknown error"}`);
+    return;
+  }
+  document.getElementById("schoolzPassword").value = "";
+  setSchoolzStatus("");
+  renderSchoolz();
+});
+
+document.getElementById("schoolzLogoutBtn").addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ type: "SCHOOLZ_LOGOUT" });
+  setSchoolzStatus("");
+  renderSchoolz();
+});
+
+document.getElementById("schoolzPublishBtn").addEventListener("click", async () => {
+  const studentId = document.getElementById("schoolzStudentSelect").value;
+  if (!studentId) return;
+  const btn = document.getElementById("schoolzPublishBtn");
+  btn.disabled = true;
+  setSchoolzStatus("Publishing…");
+  const response = await chrome.runtime.sendMessage({ type: "SCHOOLZ_PUBLISH", studentId });
+  btn.disabled = false;
+  if (!response || !response.ok) {
+    setSchoolzStatus(`Publish failed: ${(response && response.error) || "unknown error"}`);
+    return;
+  }
+  const r = response.result;
+  setSchoolzStatus(
+    `Published: ${pages(r.captures_processed)} imported${
+      r.captures_skipped_duplicate ? `, ${r.captures_skipped_duplicate} already had this` : ""
+    }.`
+  );
+});
 
 let currentSession = { active: false, startedAt: null, count: 0, pages: [] };
 
-// Remembered across popup opens (it's just a UI default, not session state -
-// the session itself is what actually turns the behavior on for a run).
-async function initOptInCheckboxes() {
-  const data = await chrome.storage.local.get([FOLLOW_LINKS_PREF_KEY, CRAWL_ALL_COURSES_PREF_KEY]);
-  document.getElementById("followLinks").checked = Boolean(data[FOLLOW_LINKS_PREF_KEY]);
-  document.getElementById("crawlAllCourses").checked = Boolean(data[CRAWL_ALL_COURSES_PREF_KEY]);
-}
-
-document.getElementById("followLinks").addEventListener("change", (e) => {
-  chrome.storage.local.set({ [FOLLOW_LINKS_PREF_KEY]: e.target.checked });
-});
-
-document.getElementById("crawlAllCourses").addEventListener("change", (e) => {
-  chrome.storage.local.set({ [CRAWL_ALL_COURSES_PREF_KEY]: e.target.checked });
-});
-
+// Following assignment/material links and walking every class from the
+// homepage are always on for an active session now (no longer a per-session
+// checkbox) - Export and Publish staying one-click, user-triggered actions
+// is what keeps this safe: the person always sees and controls exactly
+// what was captured before anything leaves the device.
 async function renderSession() {
   const { session } = await chrome.runtime.sendMessage({ type: "GET_SESSION" });
   currentSession = session;
@@ -67,29 +136,15 @@ async function renderSession() {
   const detail = document.getElementById("sessionDetail");
   const toggle = document.getElementById("sessionToggle");
   const save = document.getElementById("saveTemplate");
-  const followLinksRow = document.getElementById("followLinksRow");
-  const followLinks = document.getElementById("followLinks");
-  const crawlAllCoursesRow = document.getElementById("crawlAllCoursesRow");
-  const crawlAllCourses = document.getElementById("crawlAllCourses");
 
   card.classList.toggle("active", session.active);
   if (session.active) {
-    const extras = [
-      session.crawlAllCourses ? "walking every class from the homepage" : null,
-      session.followAssignmentLinks ? "opening each assignment page" : null,
-    ].filter(Boolean);
     title.textContent = session.replaying ? `Replaying ${session.replaying}` : "Capturing";
-    detail.textContent = `Since ${fmtClock(session.startedAt)} · ${pages(session.count)} saved${
-      extras.length ? ` · ${extras.join(", ")}` : ""
-    }. Just browse, there's nothing to click on each page.`;
+    detail.textContent = `Since ${fmtClock(session.startedAt)} · ${pages(
+      session.count
+    )} saved. Just browse — assignment pages and every class open on their own.`;
     toggle.textContent = "End capture";
     toggle.className = "stop";
-    followLinks.checked = Boolean(session.followAssignmentLinks);
-    followLinks.disabled = true;
-    followLinksRow.classList.add("disabled");
-    crawlAllCourses.checked = Boolean(session.crawlAllCourses);
-    crawlAllCourses.disabled = true;
-    crawlAllCoursesRow.classList.add("disabled");
   } else {
     title.textContent = "Not capturing";
     detail.textContent = session.startedAt
@@ -97,10 +152,6 @@ async function renderSession() {
       : "Press Start, then open your child's Classroom and Genesis pages.";
     toggle.textContent = "Start capture";
     toggle.className = "primary";
-    followLinks.disabled = false;
-    followLinksRow.classList.remove("disabled");
-    crawlAllCourses.disabled = false;
-    crawlAllCoursesRow.classList.remove("disabled");
   }
   save.hidden = session.active || !(session.pages || []).length;
 }
@@ -316,13 +367,7 @@ async function renderCaptures() {
 }
 
 document.getElementById("sessionToggle").addEventListener("click", async () => {
-  if (currentSession.active) {
-    await chrome.runtime.sendMessage({ type: "END_SESSION" });
-  } else {
-    const followAssignmentLinks = document.getElementById("followLinks").checked;
-    const crawlAllCourses = document.getElementById("crawlAllCourses").checked;
-    await chrome.runtime.sendMessage({ type: "START_SESSION", followAssignmentLinks, crawlAllCourses });
-  }
+  await chrome.runtime.sendMessage({ type: currentSession.active ? "END_SESSION" : "START_SESSION" });
   renderSession();
 });
 
@@ -381,9 +426,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 renderSites();
 renderTabNote();
-initOptInCheckboxes();
 renderSession();
 renderTemplates();
 renderReplay();
 renderCrawlProgress();
 renderCaptures();
+renderSchoolz();
