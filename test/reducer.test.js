@@ -299,6 +299,15 @@ test("resolveNearestDate picks whichever year is fewest days from now", () => {
   assert.equal(R.resolveNearestDate("", now), null);
 });
 
+test("resolveNearestDate uses an explicit year when Classroom includes one", () => {
+  const R = global.window.BackpackReducer;
+  const now = new Date(2026, 8, 18); // September 18, 2026
+  // Confirmed real: the same wording that omits the year for a recent item
+  // ("Due May 11, 7:30 AM") includes it once an item is old enough.
+  assert.deepEqual(R.resolveNearestDate("Due Sep 4, 2025, 11:30 AM", now), new Date(2025, 8, 4));
+  assert.equal(R.isWithinCurrentSchoolYear("Due Sep 4, 2025, 11:30 AM", now), false);
+});
+
 test("isWithinCurrentSchoolYear excludes a leftover date from before school-year start", () => {
   const R = global.window.BackpackReducer;
   const now = new Date(2026, 8, 18); // September 18, 2026 - school year started August 1, 2026

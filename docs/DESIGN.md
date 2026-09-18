@@ -465,22 +465,23 @@ previous school year - mixed in with current ones. Walking those every
 time is pure wasted time, and the request was explicit: only bring in
 items from this school year.
 
-**Why "nearest occurrence," not a fixed year.** Classroom never shows a
-year on either a due date or a "Created" date - confirmed real for both:
-`Due May 11, 7:30 AM` and `Created` / `May 8` (two separate, adjacent text
-nodes) are exactly what a real capture showed for the same May 2026 item.
-A bare "May 11" seen from September is genuinely ambiguous on its own - it
-could mean the May that already happened or the one 8 months from now -
-and there's no exact school-year-start date available from either
-Classroom or Genesis to resolve it against directly. `resolveNearestDate`
-resolves it the standard way a bare recurring date gets disambiguated:
-whichever of last year's, this year's, or next year's occurrence of that
-month/day is fewest calendar days from now. This happens to fall on the
-correct side of a school-year boundary without needing to know the exact
-boundary at all - a date a few months in the past resolves to the past, one
-a few months out resolves to the future, and either interpretation is only
-ever compared against a generic `schoolYearStart` (August 1) to decide
-in/out of scope.
+**Why "nearest occurrence" as a fallback, not the primary rule.** Google
+does sometimes include the year - confirmed real, on the very same
+Classwork page: a ~4-month-old item reads `Due May 11, 7:30 AM` (no year)
+while one over a year old reads `Due Sep 4, 2025, 11:30 AM` (year
+included). `resolveNearestDate` uses that year directly whenever it's
+present - authoritative, no guessing needed, and it's exactly the class of
+old, stale item this feature exists to filter out. Only a genuinely bare
+"Month Day" is actually ambiguous, and only ever for something recent
+enough that Classroom itself doesn't feel the need to spell out the year -
+for that case it resolves to whichever of last year's, this year's, or
+next year's occurrence of that month/day is fewest calendar days from now,
+the standard way to disambiguate a bare recurring date. That happens to
+fall on the correct side of a school-year boundary without needing to know
+the exact boundary at all - a date a few months in the past resolves to the
+past, one a few months out resolves to the future, and either
+interpretation is only ever compared against a generic `schoolYearStart`
+(August 1) to decide in/out of scope.
 
 **Where it applies.** `isRecentEnough` (in `reduce()`) filters the combined
 `detailLinks` - real anchors and reconstructed links alike - using each
@@ -537,6 +538,25 @@ captured before it did, and `progress.aborted` lets the popup show "stopped
 early" instead of "finished" so it's never mistaken for a clean run. A
 single bad page still resets the counter back to zero rather than ending
 the walk - this is specifically about a *run* of them, not one flaky page.
+
+## Cumulative progress across a multi-batch walk (added in 0.7.2)
+
+A real 14-course walk (backpack-captures-2026-09-18T16-12-14.json) needed
+two batches (`MAX_COURSES_PER_CRAWL` is 10 per batch - see "Bounds" above):
+10 courses, a homepage recapture, then a second batch for the remaining 4.
+The progress bar had been computed purely from the *current batch's own*
+queue, so partway through a clean run it appeared to reset from "class 9 of
+10" back to "class 1 of 4" - confusing, since nothing had actually gone
+wrong.
+
+`startCourseCrawl` now captures the full picture at the moment each batch
+starts: `totalKnownCourses` (`courseLinks.length` - every active course the
+homepage lists, not just this batch's slice of it) and
+`coursesVisitedBeforeBatch` (`session.visitedCourseIds`'s size at that
+point). `saveCrawlProgress` adds the current batch's own position to
+`coursesVisitedBeforeBatch` rather than reporting it alone, so the second
+batch above now reads "class 11 of 14" onward instead of resetting - a
+continuation, not a restart.
 
 ## Goal: resolve "what class is my child in right now" (not built yet)
 

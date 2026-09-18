@@ -328,21 +328,26 @@
 
   const MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
 
-  // A bare "Month Day" (no year - confirmed real: Classroom never shows one
-  // for either a due date or a "Created" date) is genuinely ambiguous on
-  // its own - "May 11" seen in September could mean the May that already
-  // happened or the one 8 months off. Resolved as whichever actual
-  // calendar date (last year's, this year's, or next year's occurrence) is
-  // fewest days from `now` - the standard way to disambiguate a bare
-  // recurring date, and it happens to land correctly on both sides of a
-  // school-year boundary: a date a few months in the past resolves to the
-  // past, one a few months out resolves to the future, and either way
-  // never needs the exact school-year start date to get right.
+  // Classroom includes an explicit year once an item is old enough -
+  // confirmed real: the same due-date wording that reads "Due May 11,
+  // 7:30 AM" (no year) for a ~4-month-old item reads "Due Sep 4, 2025,
+  // 11:30 AM" (year included) for one over a year old, on the very same
+  // Classwork page. When a year is present it's authoritative - used
+  // directly, no guessing. Only a genuinely bare "Month Day" is actually
+  // ambiguous, and only ever for something recent enough that Classroom
+  // itself doesn't feel the need to spell out the year - resolved as
+  // whichever actual calendar date (last year's, this year's, or next
+  // year's occurrence) is fewest days from `now`, the standard way to
+  // disambiguate a bare recurring date. That happens to land correctly on
+  // both sides of a school-year boundary: a date a few months in the past
+  // resolves to the past, one a few months out resolves to the future, and
+  // either way never needs the exact school-year start date to get right.
   function resolveNearestDate(text, now) {
-    const m = /\b([A-Z][a-z]{2})[a-z]*\.?\s+(\d{1,2})\b/.exec(text || "");
+    const m = /\b([A-Z][a-z]{2})[a-z]*\.?\s+(\d{1,2})(?:,?\s*(\d{4}))?\b/.exec(text || "");
     if (!m || !(m[1] in MONTHS)) return null;
     const month = MONTHS[m[1]];
     const day = Number(m[2]);
+    if (m[3]) return new Date(Number(m[3]), month, day);
     const candidates = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map(
       (year) => new Date(year, month, day)
     );
