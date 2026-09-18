@@ -169,6 +169,86 @@
     return links;
   }
 
+  // Base64url-encodes a numeric id string exactly the way Classroom encodes
+  // ids into its own URLs - no padding, "-"/"_" instead of "+"/"/". Confirmed
+  // real: a details page's own item-id segment, base64-decoded, is the
+  // exact numeric data-stream-item-id sitting next to that item's title on
+  // its Classwork card - the same encoding isClassId already trusts.
+  function toBase64UrlId(numericString) {
+    return global
+      .btoa(numericString)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  }
+
+  // Classwork renders every work item this codebase has seen so far as a
+  // JS-driven role="button" with no href at all - extractDetailLinks
+  // correctly leaves every one of them out. This is the fallback: for an
+  // item with no real anchor, its own details URL is *constructed* from its
+  // data-stream-item-id plus the current page's class id - the one other
+  // deliberate exception to "never reconstruct" in this file (alongside
+  // classworkHrefFor above), on the same footing: the encoding is verified
+  // exact, not guessed. It's still strictly weaker evidence than a real
+  // anchor's own href, which directly names its class regardless of which
+  // page it's found on - a reconstructed link instead trusts that this item
+  // truly belongs to the page it was captured on, which is exactly the
+  // assumption a real capture has already shown can be wrong (a Classwork
+  // page carrying a few other classes' stale leftover items - see
+  // docs/DESIGN.md). So this only runs when otherClassViews found nothing
+  // amiss (`ready`), and only ever fills a gap extractDetailLinks left
+  // empty - a real anchor for the same item always wins.
+  function reconstructWorkItemLinks(reducedTree, url, ready) {
+    const classId = classIdFromUrl(url);
+    if (!classId || !ready) return [];
+    const acct = accountIndexFromUrl(url) || 0;
+    const seenIds = new Set();
+    const links = [];
+
+    function collectSignals(node, out) {
+      if (!node) return;
+      if (node.t) {
+        const text = node.t.trim();
+        if (!out.kind && (text === "Assignment" || text === "Material")) out.kind = text.toLowerCase();
+        const dueMatch = /^Due\s+(.+)$/.exec(text);
+        if (dueMatch && !out.due) out.due = dueMatch[1].trim();
+        return;
+      }
+      const attrs = node.attrs || {};
+      const nestedId = attrs["data-stream-item-id"];
+      if (nestedId && nestedId !== out.selfId) return; // a different item boundary - handled by its own pass
+      const label = attrs["aria-label"];
+      if (label && !out.title && !/^(Assignment|Material) options for/i.test(label)) {
+        out.title = label.replace(/\s+(Assignment|Material)$/i, "").trim();
+      }
+      for (const child of node.children || []) collectSignals(child, out);
+    }
+
+    function walk(node) {
+      if (!node) return;
+      const attrs = node.attrs || {};
+      const itemId = attrs["data-stream-item-id"];
+      if (itemId && /^\d+$/.test(itemId) && !seenIds.has(itemId)) {
+        seenIds.add(itemId);
+        const out = { selfId: itemId, kind: null, title: null, due: null };
+        collectSignals(node, out);
+        if (out.kind) {
+          links.push({
+            href: `https://classroom.google.com/u/${acct}/c/${classId}/${out.kind === "assignment" ? "a" : "m"}/${toBase64UrlId(
+              itemId
+            )}/details`,
+            kind: out.kind,
+            title: out.title,
+            due: out.due,
+          });
+        }
+      }
+      for (const child of node.children || []) walk(child);
+    }
+    walk(reducedTree);
+    return links;
+  }
+
   // A course tile/nav-entry link: /u/<n>/c/<classId>, nothing after it.
   // Confirmed real (both in the left-hand class switcher, present on every
   // Classroom page, and the homepage's own course list) as a real anchor
@@ -227,12 +307,21 @@
     const opts = options || {};
     const views = otherClassViews(rootElement, opts.url || "");
     const base = core.reduce(rootElement, { skipElements: views.others });
+
+    // Real anchors always win; reconstruction only ever fills in an item
+    // extractDetailLinks found no real link for (see
+    // reconstructWorkItemLinks above for why it's gated on `views.ready`).
+    const realLinks = extractDetailLinks(base.tree, opts.url || "");
+    const reconstructedLinks = reconstructWorkItemLinks(base.tree, opts.url || "", views.ready);
+    const seenHrefs = new Set(realLinks.map((l) => l.href));
+    const detailLinks = realLinks.concat(reconstructedLinks.filter((l) => !seenHrefs.has(l.href)));
+
     return {
       ...base,
       shapeOk: checkClassroomShape(base.tree),
       loginWall: looksLikeLoginWall(opts.url || "", base.tree),
       viewReady: views.ready,
-      detailLinks: extractDetailLinks(base.tree, opts.url || ""),
+      detailLinks,
       courseLinks: extractCourseLinks(base.tree, opts.url || ""),
     };
   }
@@ -247,6 +336,7 @@
     otherClassViews,
     parseWorkItemLabel,
     extractDetailLinks,
+    reconstructWorkItemLinks,
     extractCourseLinks,
     reduce,
   };

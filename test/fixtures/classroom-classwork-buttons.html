@@ -1,0 +1,46 @@
+<!--
+  Synthetic fixture shaped after a real Classwork-tab capture examined while
+  building reconstructWorkItemLinks (src/reducer.js): every work item there
+  rendered as a JS-driven role="button" with no href at all, title/type/due
+  as separate plain-text siblings, and a "More options" tooltip trigger
+  whose own aria-label ("Assignment options for ...") must never be
+  mistaken for the item's real title.
+-->
+<!doctype html>
+<html>
+  <head>
+    <title>Classwork - Geometry</title>
+  </head>
+  <body>
+    <main>
+      <!-- an assignment with no real anchor - must be reconstructed -->
+      <div data-stream-item-id="884890179933">
+        <div aria-label="&quot;Why Novels Have First Pages&quot; Assignment" role="button">
+          "Why Novels Have First Pages" Assignment
+        </div>
+        <span>Assignment</span>
+        <span>assignment</span>
+        <span>"Why Novels Have First Pages" Assignment</span>
+        <span>Due Today</span>
+        <button aria-label="Assignment options for &quot;Why Novels Have First Pages&quot; Assignment">more_vert</button>
+      </div>
+
+      <!-- a material rendered the same button-only way -->
+      <div data-stream-item-id="999888777">
+        <div aria-label="Syllabus" role="button">Syllabus</div>
+        <span>Material</span>
+      </div>
+
+      <!-- an item that also carries a real anchor for the same id (as a
+           due-soon widget might show elsewhere on the same page) - the
+           real one must win, with no duplicate reconstructed entry -->
+      <div data-stream-item-id="885473709273">
+        <a
+          href="/u/0/c/ODcyNDkxNDc4MTk4/a/ODg1NDczNzA5Mjcz/details"
+          aria-label="Assignment: Real Anchor Item, due Friday"
+        ></a>
+        <span>Assignment</span>
+      </div>
+    </main>
+  </body>
+</html>
