@@ -36,6 +36,13 @@ const DETAIL_STEP_TIMEOUT_MS = 90000;
 const COURSE_STEP_TIMEOUT_MS = 120000; // a Classwork page's own retry loop can take longer to settle than a details page
 const MAX_DETAIL_LINKS_PER_VISIT = 20; // a class's full Classwork list can run to dozens of items
 const MAX_COURSES_PER_CRAWL = 10; // a full course load can run well past this - keep one homepage crawl to a sane size
+// This many non-ok captures in a row means something systemic (confirmed
+// real: 14 straight pages all came back with Classroom's stuck-SPA banner
+// across 17 minutes, likely Classroom throttling this session after
+// several large automated walks in one day), not a per-page fluke -
+// grinding through the rest of the queue would just produce more of the
+// same, so the crawl stops itself instead.
+const CIRCUIT_BREAKER_THRESHOLD = 3;
 // A Classroom homepage/nav URL: /u/<n>/h, /u/<n>/h/st, ... but not the
 // separate archived-classes listing (/u/<n>/h/archived) - that page's own
 // course tiles are archived classes, which the crawl should never walk.
@@ -220,11 +227,15 @@ function clearCrawlTimers(crawl) {
   if (crawl.keepAlive) clearInterval(crawl.keepAlive);
 }
 
-function crawlSummary(crawl) {
+function crawlTally(crawl) {
   const pages = `${crawl.captured} page${crawl.captured === 1 ? "" : "s"}`;
   const courses = crawl.coursesVisited ? `${crawl.coursesVisited} class${crawl.coursesVisited === 1 ? "" : "es"}, ` : "";
   const skipped = crawl.skipped ? `, ${crawl.skipped} skipped` : "";
-  return `Backpack: captured ${courses}${pages}${skipped}.`;
+  return `captured ${courses}${pages}${skipped}`;
+}
+
+function crawlSummary(crawl) {
+  return `Backpack: ${crawlTally(crawl)}.`;
 }
 
 // Read directly by popup.js (chrome.storage.local.get), the same way it
@@ -250,6 +261,7 @@ function saveCrawlProgress(crawl) {
     itemsSkipped: crawl.itemsSkipped,
     itemsQueuedTotal: itemSteps.length,
     coursesVisited: crawl.coursesVisited,
+    aborted: Boolean(crawl.aborted),
     updatedAt: new Date().toISOString(),
   };
   return chrome.storage.local.set({ [CRAWL_PROGRESS_KEY]: progress });
@@ -269,6 +281,33 @@ async function finishCrawl(tabId) {
   }
   try {
     await chrome.tabs.sendMessage(tabId, { type: "SHOW_REPLAY_TOAST", message: crawlSummary(crawl) });
+  } catch (e) {
+    // no content script on the return page - nothing to show it on
+  }
+}
+
+// Distinct from finishCrawl: this is the circuit breaker giving up early
+// on purpose, not the queue running out normally, so it gets its own
+// sticky toast explaining why, instead of the usual tally-only summary.
+async function abortCrawl(tabId, reason) {
+  const crawl = pageCrawls.get(tabId);
+  if (!crawl) return;
+  clearCrawlTimers(crawl);
+  pageCrawls.delete(tabId);
+  crawl.finished = true;
+  crawl.aborted = true;
+  await saveCrawlProgress(crawl);
+  try {
+    await chrome.tabs.update(tabId, { url: crawl.returnUrl });
+  } catch (e) {
+    return; // tab is gone - nothing left to show a toast on
+  }
+  try {
+    await chrome.tabs.sendMessage(tabId, {
+      type: "SHOW_REPLAY_TOAST",
+      message: `Backpack: stopped early - ${reason}. So far it ${crawlTally(crawl)}. Try again later.`,
+      sticky: true,
+    });
   } catch (e) {
     // no content script on the return page - nothing to show it on
   }
@@ -328,6 +367,19 @@ async function advanceCrawlStep(tabId, result) {
   if (timedOut) crawl.skipped++;
   else crawl.captured++;
 
+  // A step that never even timed out but still came back broken (a
+  // login-wall/broken-shape capture, including the stuck-SPA state -
+  // core-content.js only sends detailLinks/courseLinks for an "ok"
+  // capture, so status here is the direct signal) counts the same as a
+  // timeout for the circuit breaker: several of either in a row means
+  // something systemic, not a fluke.
+  const wasBad = timedOut || (result && result.envelope && result.envelope.status !== "ok");
+  crawl.consecutiveBad = wasBad ? crawl.consecutiveBad + 1 : 0;
+  if (crawl.consecutiveBad >= CIRCUIT_BREAKER_THRESHOLD) {
+    await abortCrawl(tabId, `${crawl.consecutiveBad} pages in a row came back broken (Classroom may be throttling this session)`);
+    return;
+  }
+
   const session = await getSession();
   if (session.active) {
     if (step.kind === "course") {
@@ -368,6 +420,7 @@ function startCrawl(tabId, returnUrl, queue, toastMessage) {
     coursesVisited: 0,
     itemsCaptured: 0,
     itemsSkipped: 0,
+    consecutiveBad: 0,
     currentCourseTitle: null,
     finished: false,
     returnUrl,
@@ -451,7 +504,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (tabId != null) {
         const crawl = pageCrawls.get(tabId);
         if (crawl && crawl.awaiting) {
-          advanceCrawlStep(tabId, { detailLinks: message.detailLinks, courseLinks: message.courseLinks });
+          advanceCrawlStep(tabId, {
+            envelope: message.envelope,
+            detailLinks: message.detailLinks,
+            courseLinks: message.courseLinks,
+          });
         } else if (session.active && message.envelope.adapter === "classroom" && message.envelope.status === "ok") {
           if (session.crawlAllCourses && isHomeUrl(message.envelope.source_url) && message.courseLinks && message.courseLinks.length) {
             startCourseCrawl(tabId, session, message.envelope.source_url, message.courseLinks);

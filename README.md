@@ -190,6 +190,13 @@ it's on out of how many, and how many pages it's captured in total. The
 total keeps growing as each class's own items are discovered, so it's a
 live count, not a fixed target known from the start.
 
+If several pages in a row come back broken — seen in practice after
+several large walks in one day, likely Classroom pushing back on the
+volume of automated traffic — the walk stops itself rather than grinding
+through the rest of the queue producing more of the same. The popup shows
+**Walk stopped early** instead of **Walk finished** when this happens; give
+it a while before trying again.
+
 ### Templates — do the same round again another day
 
 A capture session is usually the same little tour every time: each class's

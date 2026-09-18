@@ -513,6 +513,31 @@ progress store for something this cosmetic. The final tally stays visible
 after a walk finishes (or the tab is closed mid-walk) until the next one
 starts and resets it, the same way replay's own finished state persists.
 
+## Stopping early when Classroom itself seems to be pushing back (added in 0.7.1)
+
+A real walk (backpack-captures-2026-09-18T14-53-46.json) was healthy for
+its first 5 pages, then hit the stuck-SPA state (0.6.1/0.6.2) at page 6 and
+never recovered for the rest of the session - 14 pages in a row, all
+broken, over 17 straight minutes - because each one still went through its
+own full retry-then-reload-twice cycle before giving up, and the crawl just
+kept moving to the next page anyway. This was the fifth large automated
+walk run that same day; the likeliest explanation is Classroom throttling
+the session after enough automated traffic, though that's inferred from
+the pattern, not confirmed directly.
+
+Whatever the exact cause, grinding through a queue that's clearly not
+working is wasted time, and repeatedly hammering something that might be a
+deliberate rate limit is worth stopping, not pushing through. `CIRCUIT_BREAKER_THRESHOLD`
+(3) tracks consecutive non-`"ok"` results - `advanceCrawlStep` already
+knows this from the envelope's own status, no new signal needed - and once
+that many land in a row, `abortCrawl` stops the walk immediately: same
+teardown as `finishCrawl` (tab returns home, `pageCrawls` entry cleared),
+but with a distinct sticky toast naming what happened and how much was
+captured before it did, and `progress.aborted` lets the popup show "stopped
+early" instead of "finished" so it's never mistaken for a clean run. A
+single bad page still resets the counter back to zero rather than ending
+the walk - this is specifically about a *run* of them, not one flaky page.
+
 ## Goal: resolve "what class is my child in right now" (not built yet)
 
 The data needed for this already splits across pieces captured today, plus
