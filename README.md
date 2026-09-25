@@ -9,15 +9,16 @@ time.
 **It only works on Google Classroom and Genesis Parent Portal pages.** On
 every other website Chrome never loads it, so it can't see or record the
 rest of your browsing. **Nothing is captured until you press Start
-capture.**
+capture** (or turn on the optional scheduled walk, below).
 
 **It is read-only, and stays on your device unless you say otherwise.** It
 never logs in, never submits a form, never reads cookies or your password,
-and never sends anything over the network on its own. Two things move data
-off the device, and both require you to press a button each time: exporting
-a file, or optionally publishing your captures to your own
+and never sends anything over the network unless you set it up to. Data
+leaves the device in three ways, each one your choice: exporting a file,
+publishing your captures to your own
 [schoolz](https://schoolz.sitenaut.com) account (see "Publishing to
-schoolz" below) — nothing is sent anywhere by default.
+schoolz" below), or a scheduled walk that publishes there every few hours,
+if you turn it on — nothing is sent anywhere by default.
 
 ## Why it works this way
 
@@ -86,7 +87,8 @@ roughly 80KB of actual signal; on a real Genesis student-summary page it's
 - It does not talk to any server on its own. There is no telemetry, no
   analytics, no crash reporting — the only outbound calls this extension
   ever makes are the ones described under "Publishing to schoolz," and only
-  when you press **Log in** or **Publish captures**.
+  when you press **Log in** or **Publish captures**, or when a scheduled
+  walk you turned on finishes.
 - It currently has adapters for Google Classroom and the Genesis Parent
   Portal. Other portals (ClassDojo, Remind, ...) are a documented future
   step, not built yet — see `docs/DESIGN.md`.
@@ -263,10 +265,36 @@ hand.
    touch your schoolz account itself.
 
 This is the one deliberate exception to "nothing leaves the device" above.
-It only ever happens when you press **Log in** or **Publish captures** —
-never automatically, never on a schedule, and **Export capture** stays
+It only ever happens when you press **Log in** or **Publish captures**, or
+on the schedule below if you turn it on. **Export capture** stays
 available the whole time as a plain local file, so you always have your
 own copy independent of whether you ever publish anything.
+
+### Scheduled walk (optional)
+
+Under **Publish captures** there's a **Walk every class and publish every 4
+hours** switch. With it on, an hourly check starts a walk whenever one is
+due (never between 10pm and 6am): it opens the Classroom homepage for the
+Google account you set (`/u/0/` by default) in its own unfocused window,
+walks every class exactly as a capture session does, publishes what's new
+to the student picked in the dropdown, and closes the window. **Run now**
+starts one straight away, to try it out.
+
+- **You still sign in to Google yourself**, once, in that Chrome profile.
+  The extension never signs in. When that sign-in expires, the walk stops
+  at the sign-in page and tells schoolz, which puts a "Backpack Capture
+  needs sign-in" notification in your schoolz account. Sign in again and
+  the next walk picks up by itself; the notification clears after the
+  next successful run.
+- **Chrome has to stay open and the computer awake**, with the walk's
+  window on screen (not minimized): Classroom only loads more items as the
+  page scrolls, and a minimized window doesn't render. A dedicated,
+  always-on machine is the easy way to get this.
+- Each walk re-reads every class's Classwork list. It only reopens an
+  assignment's own page once a day, to keep traffic to Classroom down.
+- A walk never starts while you're in a capture session or replay, and it
+  never touches another Classroom tab you have open.
+- The popup shows how the last walk went.
 
 ## Status badges, and why they exist
 
@@ -309,16 +337,17 @@ Classroom, Genesis, or any school district.
   extension's code is never loaded, so it can't see, read, or record the
   rest of your browsing. The popup lists both sites and tells you whether
   the current tab is one of them (`src/supported-sites.js`).
-- **Nothing is captured until you press Start capture.** A red REC badge
-  shows while it's on, and it turns off when you press End capture or
-  Chrome restarts.
+- **Nothing is captured until you press Start capture**, or the scheduled
+  walk runs if you turned it on. A red REC badge shows while it's on, and
+  it turns off when you press End capture or Chrome restarts.
 - Everything stays in the browser's local extension storage until you
   explicitly export it or publish it (see "Publishing to schoolz" above).
 - The only network requests anywhere in this codebase are the schoolz
-  login and publish calls (`src/background.js`'s `schoolzLogin`/
-  `schoolzListStudents`/`schoolzPublish`), and only when you press the
-  corresponding button — you can verify this by reading `src/*.js`; every
-  `fetch` call in the codebase is inside one of those three functions.
+  login, publish and status calls (`src/background.js`'s `schoolzLogin`/
+  `schoolzLoginWithGoogle`/`ensureFreshSchoolzToken`/`schoolzListStudents`/
+  `schoolzPublish`/`reportAutoWalkStatus`), and only when you press the
+  corresponding button or a scheduled walk you turned on finishes — you
+  can verify this by reading `src/*.js`.
 - Uninstalling the extension deletes all locally stored captures and any
   stored schoolz login.
 - Because this handles a child's education records, treat exported JSON

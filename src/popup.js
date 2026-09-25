@@ -72,6 +72,7 @@ async function renderSchoolz() {
     select.value = previousValue;
   }
   document.getElementById("schoolzPublishBtn").disabled = !select.options.length;
+  await renderAutoWalk();
   if (!select.options.length) {
     setSchoolzStatus("No students on your schoolz account yet — add one at schoolz.sitenaut.com first.");
   }
@@ -130,6 +131,83 @@ document.getElementById("schoolzPublishBtn").addEventListener("click", async () 
       r.captures_skipped_duplicate ? `, ${r.captures_skipped_duplicate} already had this` : ""
     }.`
   );
+});
+
+const AUTO_WALK_STATUS_LABEL = {
+  running: "running now",
+  ok: "finished",
+  needs_login: "Classroom needs you to sign in again",
+  aborted: "stopped early",
+  broken: "Classroom didn't load properly",
+  timed_out: "took too long and was stopped",
+  cancelled: "its window was closed",
+  schoolz_logged_out: "skipped: log in to schoolz again",
+  error: "failed",
+};
+
+const AUTO_WALK_START_ERROR = {
+  busy: "Finish or end the current capture first.",
+  already_running: "A walk is already running.",
+  no_student: "Pick a student first.",
+  schoolz_logged_out: "Log in to schoolz again first.",
+  window_failed: "Couldn't open a window for the walk.",
+};
+
+function describeLastRun(run) {
+  if (!run || !run.startedAt) return "Hasn't run yet.";
+  const label = AUTO_WALK_STATUS_LABEL[run.status] || run.status;
+  if (run.status === "running") return `Last walk: ${label} (since ${fmtClock(run.startedAt)}).`;
+  let text = `Last walk ${fmtTime(run.startedAt)}: ${label}`;
+  if (run.detail) text += ` (${run.detail})`;
+  if (run.published && run.published.ok) text += `, published ${pages(run.published.processed)}`;
+  else if (run.published) text += `, publish failed: ${run.published.error}`;
+  return `${text}.`;
+}
+
+async function renderAutoWalk() {
+  const state = await chrome.runtime.sendMessage({ type: "AUTO_WALK_GET" });
+  if (!state || !state.ok) return;
+  document.getElementById("autoWalkEnabled").checked = state.settings.enabled;
+  document.getElementById("autoWalkAccount").value = String(state.settings.accountIndex);
+  document.getElementById("autoWalkLast").textContent = describeLastRun(state.lastRun);
+  document.getElementById("autoWalkRunNow").disabled = state.running;
+  // Show the student the schedule actually publishes to, if it's still listed.
+  const select = document.getElementById("schoolzStudentSelect");
+  if (state.settings.enabled && state.settings.studentId && [...select.options].some((o) => o.value === state.settings.studentId)) {
+    select.value = state.settings.studentId;
+  }
+}
+
+function autoWalkStudent() {
+  const select = document.getElementById("schoolzStudentSelect");
+  const option = select.options[select.selectedIndex];
+  return option ? { studentId: option.value, studentName: option.textContent } : { studentId: null, studentName: null };
+}
+
+async function saveAutoWalk() {
+  const account = Number(document.getElementById("autoWalkAccount").value);
+  await chrome.runtime.sendMessage({
+    type: "AUTO_WALK_SAVE",
+    settings: {
+      enabled: document.getElementById("autoWalkEnabled").checked,
+      accountIndex: Number.isInteger(account) && account >= 0 ? account : 0,
+      ...autoWalkStudent(),
+    },
+  });
+  renderAutoWalk();
+}
+
+document.getElementById("autoWalkEnabled").addEventListener("change", saveAutoWalk);
+document.getElementById("autoWalkAccount").addEventListener("change", saveAutoWalk);
+document.getElementById("schoolzStudentSelect").addEventListener("change", saveAutoWalk);
+
+document.getElementById("autoWalkRunNow").addEventListener("click", async () => {
+  await saveAutoWalk(); // run with what's on screen, not whatever was saved last
+  const result = await chrome.runtime.sendMessage({ type: "AUTO_WALK_RUN_NOW" });
+  setSchoolzStatus(
+    result && result.ok ? "Walk started in its own window." : AUTO_WALK_START_ERROR[result && result.error] || "Couldn't start the walk."
+  );
+  renderAutoWalk();
 });
 
 let currentSession = { active: false, startedAt: null, count: 0, pages: [] };
@@ -433,6 +511,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     renderTemplates();
   }
   if (changes.backpack_crawl_progress) renderCrawlProgress();
+  if (changes.backpack_auto_walk_last) renderAutoWalk();
 });
 
 renderSites();

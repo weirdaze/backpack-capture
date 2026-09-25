@@ -324,6 +324,38 @@ button.icon:hover {
   gap: 8px;
 }
 
+.auto-walk {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auto-walk-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.schoolz .auto-walk .muted {
+  margin: 0;
+}
+
+.schoolz input#autoWalkAccount {
+  width: 3.2em;
+  padding: 1px 4px;
+}
+
+.auto-walk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .schoolz-divider {
   display: flex;
   align-items: center;

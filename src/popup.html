@@ -48,6 +48,23 @@
         </div>
         <select id="schoolzStudentSelect"></select>
         <button id="schoolzPublishBtn" class="primary">Publish captures</button>
+
+        <div class="auto-walk">
+          <label class="auto-walk-toggle">
+            <input id="autoWalkEnabled" type="checkbox" />
+            Walk every class and publish every 4 hours
+          </label>
+          <p class="muted">
+            For the student picked above, using Google account
+            /u/<input id="autoWalkAccount" type="number" min="0" max="9" value="0" />/. Not between 10pm and 6am.
+            Chrome has to stay open and the computer awake. It never signs in to Google for you: when that sign-in
+            expires, schoolz notifies you to sign in again here.
+          </p>
+          <div class="auto-walk-row">
+            <span id="autoWalkLast" class="muted"></span>
+            <button id="autoWalkRunNow">Run now</button>
+          </div>
+        </div>
       </div>
 
       <p id="schoolzStatus" class="status" hidden></p>
