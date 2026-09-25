@@ -227,6 +227,9 @@
 
         if (envelope.status === "login_wall") {
           showToast("Backpack: this looks like a sign-in page, nothing captured.");
+          // Lets a scheduled walk stop and ask for a sign-in, rather than
+          // waiting out its timeout.
+          chrome.runtime.sendMessage({ type: "LOGIN_WALL" }).catch(() => {});
           return;
         }
 

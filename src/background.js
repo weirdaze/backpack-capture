@@ -2,11 +2,11 @@
  * Backpack Capture — background service worker.
  *
  * Owns the local capture store (chrome.storage.local), the capture session
- * (Start/End capture), saved templates, and replay. Never touches the
- * network — this extension has no server and no API calls anywhere in it;
- * captures leave the browser only when the parent explicitly exports them.
+ * (Start/End capture), saved templates, replay, and the optional scheduled
+ * walk. The only network calls are to schoolz, and only once the parent has
+ * logged in there: a Publish press, or the scheduled walk they turned on.
  */
-importScripts("supported-sites.js", "template-builder.js");
+importScripts("supported-sites.js", "template-builder.js", "auto-walk.js");
 
 const STORAGE_KEY = "backpack_captures";
 const SESSION_KEY = "backpack_session"; // also read by core-content.js
@@ -102,10 +102,12 @@ chrome.runtime.onStartup.addListener(async () => {
   const session = await getSession();
   await saveSession({ ...session, active: false });
   await setReplay(null);
+  await syncAutoWalkAlarm();
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
   await showSessionBadge(await getSession());
+  await syncAutoWalkAlarm();
 });
 
 // ---- replay -----------------------------------------------------------------
@@ -299,6 +301,9 @@ async function abortCrawl(tabId, reason) {
   pageCrawls.delete(tabId);
   crawl.finished = true;
   crawl.aborted = true;
+  // The homepage recapture this navigation triggers would otherwise start
+  // the next batch; a scheduled run stops at the first sign of trouble.
+  if (autoRun && autoRun.tabId === tabId) autoRun.aborted = reason;
   await saveCrawlProgress(crawl);
   try {
     await chrome.tabs.update(tabId, { url: crawl.returnUrl });
@@ -413,8 +418,10 @@ async function advanceCrawlStep(tabId, result) {
   await goToNextCrawlStep(tabId);
 }
 
+// Returns whether a crawl actually started - the scheduled walk treats a
+// homepage capture that starts nothing as "every class has been walked".
 function startCrawl(tabId, returnUrl, queue, toastMessage, progressContext, sticky) {
-  if (pageCrawls.has(tabId) || !queue.length) return; // a crawl is already running in this tab
+  if (pageCrawls.has(tabId) || !queue.length) return false; // a crawl is already running in this tab
   pageCrawls.set(tabId, {
     queue,
     index: 0,
@@ -449,12 +456,13 @@ function startCrawl(tabId, returnUrl, queue, toastMessage, progressContext, stic
     // no content script yet on this tab - the navigation itself still proceeds
   });
   goToNextCrawlStep(tabId);
+  return true;
 }
 
 function startDetailOnlyCrawl(tabId, session, returnUrl, detailLinks) {
   const queue = detailStepsFrom(detailLinks, session, new Set());
-  if (!queue.length) return;
-  startCrawl(
+  if (!queue.length) return false;
+  return startCrawl(
     tabId,
     returnUrl,
     queue,
@@ -470,7 +478,7 @@ function startCourseCrawl(tabId, session, returnUrl, courseLinks) {
     queue.push({ kind: "course", href: link.classworkHref, classId: link.classId, title: link.title });
     if (queue.length >= MAX_COURSES_PER_CRAWL) break;
   }
-  if (!queue.length) return;
+  if (!queue.length) return false;
   // Sticky, and says so plainly: a real run's uniform, unrecovering string
   // of failures (see CIRCUIT_BREAKER_THRESHOLD above) looked exactly like
   // Classroom throttling at first, but the far simpler and likelier
@@ -478,7 +486,7 @@ function startCourseCrawl(tabId, session, returnUrl, courseLinks) {
   // suspending every timer and dropping the network mid-navigation, which
   // Classroom's own SPA can surface as this same stuck-refresh state on
   // waking. A walk that never sleeps has nothing like this to recover from.
-  startCrawl(
+  return startCrawl(
     tabId,
     returnUrl,
     queue,
@@ -493,6 +501,10 @@ function startCourseCrawl(tabId, session, returnUrl, courseLinks) {
 // A crawling tab that's closed mid-flight would otherwise leak its timer
 // and keep-alive interval forever.
 chrome.tabs.onRemoved.addListener((tabId) => {
+  if (autoRun && autoRun.tabId === tabId) {
+    autoRun.tabClosed = true;
+    finishAutoWalk("cancelled", "the walk's window was closed");
+  }
   const crawl = pageCrawls.get(tabId);
   if (!crawl) return;
   clearCrawlTimers(crawl);
@@ -507,8 +519,8 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // extension's standing "nothing is sent anywhere unless you export it"
 // promise: a parent can choose to publish their local captures to their own
 // family's schoolz account instead of (or alongside) a manual file export.
-// Nothing here ever runs on its own - login and publish are both only ever
-// triggered by a person pressing a button in the popup.
+// Login is only ever a person pressing a button in the popup; publishing is
+// too, unless that person also turned on the scheduled walk (below).
 //
 // schoolz's own web app authenticates the same way (Supabase email/password,
 // same project) - this calls Supabase's auth REST API directly rather than
@@ -646,10 +658,10 @@ async function schoolzListStudents() {
 // endpoint already dedupes by content hash per student (skips anything it's
 // already stored), so resending is safe and simple rather than this
 // extension having to track what it already published.
-async function schoolzPublish(studentId) {
+async function schoolzPublish(studentId, onlyCaptures) {
   const token = await ensureFreshSchoolzToken();
   if (!token) return { ok: false, error: "not_logged_in" };
-  const captures = await getCaptures();
+  const captures = onlyCaptures || (await getCaptures());
   const response = await fetch(`${SCHOOLZ_API_URL}/students/${encodeURIComponent(studentId)}/bucket3/import`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -658,6 +670,211 @@ async function schoolzPublish(studentId) {
   const json = await response.json().catch(() => ({}));
   if (!response.ok) return { ok: false, error: json.detail || `schoolz returned ${response.status}` };
   return { ok: true, result: json };
+}
+
+// ---- scheduled walk ----------------------------------------------------------
+//
+// Off by default. Once a parent turns it on (popup, under Publish to
+// schoolz), an hourly alarm checks whether a walk is due - every
+// intervalHours, never in quiet hours - and if so opens the Classroom
+// homepage in its own unfocused window, lets the normal course walk run
+// exactly as it does when a person presses Start, publishes what's new to
+// the chosen student, and closes the window.
+//
+// It never logs in. The Google session is one a person signed into by hand
+// in this Chrome profile; when it lapses, the run stops at the sign-in page,
+// records "needs_login", and tells schoolz so the parent gets a notification
+// to come sign in again. DESIGN.md's "The scheduled walk" has the rationale.
+const AUTO_WALK_ALARM = "backpack-auto-walk";
+const AUTO_WALK_SETTINGS_KEY = "backpack_auto_walk";
+const AUTO_WALK_LAST_KEY = "backpack_auto_walk_last"; // { startedAt, finishedAt, status, detail, published }
+const AUTO_WALK_SEEN_KEY = "backpack_auto_walk_seen_details"; // { href: firstVisitedAtMs }
+const AUTO_WALK_PUBLISHED_KEY = "backpack_auto_walk_published_through"; // latest captured_at already sent
+// Long enough for Classroom's redirect chain and its own settle/retry loop
+// on the homepage; a redirect off to Google's sign-in page never produces
+// a capture at all, so this is also how that case is noticed.
+const AUTO_WALK_HOME_TIMEOUT_MS = 3 * 60 * 1000;
+const AUTO_WALK_MAX_MS = 90 * 60 * 1000;
+
+let autoRun = null; // { tabId, windowId, startedAt, homeTimer, maxTimer, keepAlive, aborted, tabClosed }
+
+async function syncAutoWalkAlarm() {
+  const settings = BackpackAutoWalk.withDefaults(await readKey(AUTO_WALK_SETTINGS_KEY, null));
+  if (!settings.enabled) {
+    await chrome.alarms.clear(AUTO_WALK_ALARM);
+    return;
+  }
+  // Hourly rather than every intervalHours: a machine that was asleep or
+  // closed when a run came due picks it up within the hour instead of
+  // waiting out a whole extra interval.
+  const existing = await chrome.alarms.get(AUTO_WALK_ALARM);
+  if (!existing) await chrome.alarms.create(AUTO_WALK_ALARM, { delayInMinutes: 1, periodInMinutes: 60 });
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === AUTO_WALK_ALARM) startAutoWalk({ force: false });
+});
+
+async function startAutoWalk({ force }) {
+  const settings = BackpackAutoWalk.withDefaults(await readKey(AUTO_WALK_SETTINGS_KEY, null));
+  const lastRun = await readKey(AUTO_WALK_LAST_KEY, null);
+  if (!force) {
+    const reason = BackpackAutoWalk.skipReason(settings, new Date(), lastRun);
+    if (reason) return { ok: false, error: reason };
+  } else if (!settings.studentId) {
+    return { ok: false, error: "no_student" };
+  }
+  // Never interrupt something a person started.
+  if (autoRun) return { ok: false, error: "already_running" };
+  if (runner || pageCrawls.size || (await getSession()).active) return { ok: false, error: "busy" };
+
+  const startedAt = new Date().toISOString();
+  if (!(await ensureFreshSchoolzToken())) {
+    // Nowhere to publish to, and nowhere to report it except here.
+    await chrome.storage.local.set({
+      [AUTO_WALK_LAST_KEY]: { startedAt, finishedAt: startedAt, status: "schoolz_logged_out", detail: null, published: null },
+    });
+    return { ok: false, error: "schoolz_logged_out" };
+  }
+
+  const seen = BackpackAutoWalk.pruneSeenDetails(await readKey(AUTO_WALK_SEEN_KEY, {}), Date.now());
+  await chrome.storage.local.set({ [AUTO_WALK_SEEN_KEY]: seen });
+  await saveSession({
+    ...IDLE_SESSION,
+    active: true,
+    startedAt,
+    replaying: "scheduled walk",
+    // Detail pages opened in the last day are skipped; every class's
+    // Classwork list is still walked.
+    visitedDetailLinks: Object.keys(seen),
+  });
+  await chrome.storage.local.set({ [AUTO_WALK_LAST_KEY]: { ...(lastRun || {}), startedAt, status: "running" } });
+
+  let win;
+  try {
+    // Unfocused so it doesn't grab the keyboard from whoever is using the
+    // machine, but a real on-screen window: Classroom lazy-loads as it
+    // scrolls, and a minimized window doesn't render.
+    win = await chrome.windows.create({
+      url: BackpackAutoWalk.homeUrl(settings.accountIndex),
+      focused: false,
+      width: 1200,
+      height: 900,
+    });
+  } catch (e) {
+    await saveSession({ ...(await getSession()), active: false, replaying: null });
+    await chrome.storage.local.set({
+      [AUTO_WALK_LAST_KEY]: { startedAt, finishedAt: new Date().toISOString(), status: "error", detail: String(e), published: null },
+    });
+    return { ok: false, error: "window_failed" };
+  }
+
+  autoRun = {
+    tabId: win.tabs[0].id,
+    windowId: win.id,
+    startedAt,
+    studentId: settings.studentId,
+    aborted: null,
+    tabClosed: false,
+    keepAlive: setInterval(() => chrome.runtime.getPlatformInfo(), 20000),
+    homeTimer: setTimeout(() => noHomeCapture(), AUTO_WALK_HOME_TIMEOUT_MS),
+    maxTimer: setTimeout(() => finishAutoWalk("timed_out", "the walk ran past 90 minutes"), AUTO_WALK_MAX_MS),
+  };
+  return { ok: true };
+}
+
+// No homepage capture at all. With no host permission for Google's sign-in
+// page, its URL isn't even readable here - which is itself the tell: the
+// tab left classroom.google.com.
+async function noHomeCapture() {
+  if (!autoRun || (await getSession()).count > 0) return;
+  let url = null;
+  try {
+    url = (await chrome.tabs.get(autoRun.tabId)).url || null;
+  } catch (e) {
+    // tab is gone - onRemoved handles that
+  }
+  if (!url || !url.startsWith("https://classroom.google.com/")) finishAutoWalk("needs_login");
+  else finishAutoWalk("broken", "the Classroom homepage never finished loading");
+}
+
+async function finishAutoWalk(status, detail) {
+  const run = autoRun;
+  if (!run) return;
+  autoRun = null; // before any await, so nothing re-enters this run
+  clearTimeout(run.homeTimer);
+  clearTimeout(run.maxTimer);
+  clearInterval(run.keepAlive);
+
+  const crawl = pageCrawls.get(run.tabId);
+  if (crawl) {
+    clearCrawlTimers(crawl);
+    pageCrawls.delete(run.tabId);
+    crawl.finished = true;
+    crawl.aborted = status !== "ok";
+    await saveCrawlProgress(crawl);
+  }
+
+  const session = await getSession();
+  await saveSession({ ...session, active: false, replaying: null });
+  await chrome.storage.local.set({
+    [AUTO_WALK_SEEN_KEY]: BackpackAutoWalk.mergeSeenDetails(
+      await readKey(AUTO_WALK_SEEN_KEY, {}),
+      session.visitedDetailLinks,
+      Date.now()
+    ),
+  });
+  if (!run.tabClosed) {
+    try {
+      await chrome.windows.remove(run.windowId);
+    } catch (e) {
+      // already closed
+    }
+  }
+
+  // Publish whatever was captured, even from a run that stopped early -
+  // those pages are real, and schoolz upserts rather than replaces.
+  let published = null;
+  const cutoff = await readKey(AUTO_WALK_PUBLISHED_KEY, null);
+  const fresh = BackpackAutoWalk.capturesSince(await getCaptures(), cutoff);
+  if (fresh.length) {
+    const result = await schoolzPublish(run.studentId, fresh);
+    published = result.ok
+      ? { ok: true, processed: result.result.captures_processed, duplicates: result.result.captures_skipped_duplicate }
+      : { ok: false, error: result.error };
+    if (result.ok) {
+      await chrome.storage.local.set({ [AUTO_WALK_PUBLISHED_KEY]: BackpackAutoWalk.latestCapturedAt(fresh) });
+    }
+  }
+
+  await reportAutoWalkStatus(run.studentId, status, detail);
+  await chrome.storage.local.set({
+    [AUTO_WALK_LAST_KEY]: {
+      startedAt: run.startedAt,
+      finishedAt: new Date().toISOString(),
+      status,
+      detail: detail || null,
+      pages: session.count,
+      published,
+    },
+  });
+}
+
+// Best effort: schoolz turns needs_login into a notification (and clears it
+// again once a run succeeds). A failure here just leaves the popup's own
+// last-run line as the only record.
+async function reportAutoWalkStatus(studentId, status, detail) {
+  try {
+    const token = await ensureFreshSchoolzToken();
+    if (!token) return;
+    await fetch(`${SCHOOLZ_API_URL}/students/${encodeURIComponent(studentId)}/bucket3/capture-status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ status, detail: detail || null }),
+    });
+  } catch (e) {
+    // offline - nothing more to do
+  }
 }
 
 // ---- messages ---------------------------------------------------------------
@@ -685,24 +902,78 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // shouldn't wait on whether a crawl starts or advances.
       if (tabId != null) {
         const crawl = pageCrawls.get(tabId);
+        const isAutoTab = Boolean(autoRun && autoRun.tabId === tabId);
         if (crawl && crawl.awaiting) {
           advanceCrawlStep(tabId, {
             envelope: message.envelope,
             detailLinks: message.detailLinks,
             courseLinks: message.courseLinks,
           });
-        } else if (session.active && message.envelope.adapter === "classroom" && message.envelope.status === "ok") {
-          // Always on (see START_SESSION) - following links and walking every
-          // class from the homepage are no longer an opt-in choice, since
-          // Export/Publish staying one-click, user-triggered actions already
-          // guarantees the person sees and controls everything captured.
-          if (isHomeUrl(message.envelope.source_url) && message.courseLinks && message.courseLinks.length) {
-            startCourseCrawl(tabId, session, message.envelope.source_url, message.courseLinks);
-          } else if (message.detailLinks && message.detailLinks.length) {
-            startDetailOnlyCrawl(tabId, session, message.envelope.source_url, message.detailLinks);
+        } else if (isAutoTab && autoRun.aborted) {
+          finishAutoWalk("aborted", autoRun.aborted);
+        } else {
+          let started = false;
+          // During a scheduled run the session is on for every tab, but only
+          // the run's own window should be driven - never a Classroom tab
+          // someone happens to be reading at the same time.
+          const mayCrawl = !autoRun || isAutoTab;
+          if (mayCrawl && session.active && message.envelope.adapter === "classroom" && message.envelope.status === "ok") {
+            // Always on (see START_SESSION) - following links and walking every
+            // class from the homepage are no longer an opt-in choice, since
+            // Export/Publish staying one-click, user-triggered actions already
+            // guarantees the person sees and controls everything captured.
+            if (isHomeUrl(message.envelope.source_url) && message.courseLinks && message.courseLinks.length) {
+              started = startCourseCrawl(tabId, session, message.envelope.source_url, message.courseLinks);
+            } else if (message.detailLinks && message.detailLinks.length) {
+              started = startDetailOnlyCrawl(tabId, session, message.envelope.source_url, message.detailLinks);
+            }
+          }
+          // The scheduled walk's tab only ever lands back on the homepage
+          // between batches; one that starts nothing means every class is done.
+          if (isAutoTab && !started) {
+            if (message.envelope.status === "ok") finishAutoWalk("ok");
+            else finishAutoWalk("broken", `the Classroom homepage came back "${message.envelope.status}"`);
           }
         }
       }
+    })();
+    return true;
+  }
+
+  // Sent by the content script instead of a capture when a Classroom page
+  // turns out to be a sign-in screen (nothing is stored for those).
+  if (message && message.type === "LOGIN_WALL") {
+    if (autoRun && sender.tab && autoRun.tabId === sender.tab.id) finishAutoWalk("needs_login");
+    sendResponse({ ok: true });
+    return undefined;
+  }
+
+  if (message && message.type === "AUTO_WALK_GET") {
+    (async () => {
+      sendResponse({
+        ok: true,
+        settings: BackpackAutoWalk.withDefaults(await readKey(AUTO_WALK_SETTINGS_KEY, null)),
+        lastRun: await readKey(AUTO_WALK_LAST_KEY, null),
+        running: Boolean(autoRun),
+      });
+    })();
+    return true;
+  }
+
+  if (message && message.type === "AUTO_WALK_SAVE") {
+    (async () => {
+      const current = BackpackAutoWalk.withDefaults(await readKey(AUTO_WALK_SETTINGS_KEY, null));
+      const next = { ...current, ...message.settings };
+      await chrome.storage.local.set({ [AUTO_WALK_SETTINGS_KEY]: next });
+      await syncAutoWalkAlarm();
+      sendResponse({ ok: true, settings: next });
+    })();
+    return true;
+  }
+
+  if (message && message.type === "AUTO_WALK_RUN_NOW") {
+    (async () => {
+      sendResponse(await startAutoWalk({ force: true }));
     })();
     return true;
   }

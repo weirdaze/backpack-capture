@@ -136,9 +136,10 @@ Every capture carries, alongside the reduced text:
 
 ## What's deliberately out of scope here
 
-- **Automated login, and unattended refresh.** Non-negotiable — it's what
-  makes the whole approach work at all. A capture happens because a person
-  is looking at the page, never on a timer with nobody present.
+- **Automated login.** Non-negotiable — it's what makes the whole
+  approach work at all. (Unattended refresh used to sit here too; it was
+  reversed in 0.8.0, see "The scheduled walk" below. The login half
+  stands.)
 - **Turning work in, messaging teachers, or any write action.** Read-only.
 - **Due-date/assignment extraction, dedup, and a consolidated UI.** This
   repo produces reduced JSON; turning that into a "what's due" list is a
@@ -708,6 +709,67 @@ tokens Supabase's callback hands back in the redirect URL's fragment
 `backpack_schoolz_auth` record, refreshed the exact same way, published
 against the exact same endpoint - `schoolzLoginWithGoogle` only differs in
 how it *obtains* that first token, not in what happens after.
+
+## The scheduled walk (added in 0.8.0)
+
+Reverses half of an "out of scope" rule above, by explicit owner decision
+(2026-09-24): capture no longer needs a person looking at the page, but a
+person still does every sign-in. The line that matters was always "never
+authenticate as automation", not "never run on a timer": a walk against a
+session a human signed into by hand, in a real Chrome profile on the same
+machine, is the same traffic a person pressing Start produces. Automating
+the Google sign-in itself was considered and rejected again - bot
+detection and new-device challenges on a district-managed student account
+make it fail at exactly the moment nobody is there to answer, and it would
+have meant holding the child's password.
+
+How it runs (`src/auto-walk.js` for the pure rules, `startAutoWalk`/
+`finishAutoWalk` in `background.js` for the rest):
+
+- **An hourly `chrome.alarms` tick, not a 4-hour one.** It checks whether
+  `intervalHours` have passed since the last run's start, so a machine
+  that was asleep when a run came due catches up within the hour rather
+  than a whole interval later. No walks 10pm-6am.
+- **It reuses the ordinary course walk unchanged.** A run is a normal
+  session plus one unfocused window opened on the homepage; the existing
+  homepage-capture -> `startCourseCrawl` path does the walking, batch by
+  batch. A homepage capture that starts no crawl means every class is
+  done, which is how a run knows it finished - `startCrawl` and friends
+  now return whether they started anything for exactly this reason.
+- **Only the run's own tab is driven.** A session is global, so during a
+  run any other Classroom tab the person has open would capture too, and
+  would otherwise start its own walk. `mayCrawl` stops that.
+- **Detail pages are opened at most once a day.** A detail page (the
+  instructions, the point value) rarely changes once posted; the Classwork
+  list, where due dates and new work show up, is re-read every run. Seen
+  detail links carry their *first*-visit time so they expire a day after
+  first being opened, not renewed forever by each run.
+- **It publishes only what's new** since the last successful publish.
+  schoolz dedupes by content hash anyway; this is about not re-sending
+  hundreds of stored pages every four hours.
+- **An early stop (circuit breaker) ends the run.** Manually, the homepage
+  recapture after an abort would start the next batch; on a schedule
+  nobody is there to judge whether that's wise, so `autoRun.aborted` makes
+  the next homepage capture end the run instead. Whatever was captured
+  before the stop is still published.
+
+**Noticing a lapsed Google sign-in.** Two paths, because an expired session
+shows up two ways: Classroom may render its own sign-in wall (the content
+script now sends `LOGIN_WALL` instead of silently dropping the capture), or
+it redirects to `accounts.google.com`, where this extension has no
+permission to run at all. The second case gives no capture within
+`AUTO_WALK_HOME_TIMEOUT_MS`, and the tab's URL can't even be read (no
+host permission there) - that unreadability is itself the signal.
+Either way the run ends `needs_login`, and `POST
+/students/{id}/bucket3/capture-status` on schoolz raises one
+`capture_needs_login` notification: not a new one every four hours while
+it stays broken, and it's marked read by the next `ok` run.
+
+**Known constraint: the window must render.** Classroom lazy-loads on
+scroll, and Chrome doesn't render minimized (or, on Windows, fully covered)
+windows, so a walk in one can come back short. The window is opened
+unfocused rather than minimized for this reason. Not verified against a
+covered window on a real machine yet.
 
 ## Goal: resolve "what class is my child in right now" (not built yet)
 

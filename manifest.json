@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Backpack Capture",
-  "version": "0.7.7",
+  "version": "0.8.0",
   "description": "Saves Google Classroom and Genesis Parent Portal pages while capture is on. Stays local unless you choose to export or publish it.",
   "icons": {
     "16": "icons/icon16.png",
@@ -21,7 +21,7 @@
   "background": {
     "service_worker": "src/background.js"
   },
-  "permissions": ["storage", "downloads", "activeTab", "identity"],
+  "permissions": ["storage", "downloads", "activeTab", "identity", "alarms"],
   "host_permissions": [
     "https://classroom.google.com/*",
     "*://*/genesis/parents*",
